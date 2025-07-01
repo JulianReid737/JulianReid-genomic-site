@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Genomic Data Website</title>
+    <!-- Tailwind CSS for basic styling across the whole site -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Global body styles for the website */
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f0f4f8; /* Light blue-gray background */
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh; /* Ensures footer sticks to bottom */
+        }
+
+        /* Header styling */
+        header {
+            background-color: #1a202c; /* Dark gray for header */
+            color: #ffffff;
+            padding: 1rem 2rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        header h1 {
+            font-size: 2rem;
+            font-weight: bold;
+        }
+
+        /* Main content area to hold the summarizer */
+        main {
+            flex-grow: 1; /* Allows main content to take up available space */
+            padding: 2rem 0; /* Vertical padding for the main content */
+        }
+
+        /* Footer styling */
+        footer {
+            background-color: #1a202c; /* Dark gray for footer */
+            color: #cbd5e0;
+            padding: 1rem 2rem;
+            text-align: center;
+            font-size: 0.875rem;
+            margin-top: auto; /* Pushes footer to the bottom */
+        }
+
+        /* Styles copied directly from the Genomic Data Summarizer for its components */
+        .container {
+            max-width: 1024px;
+            margin: 2rem auto; /* Adjusted to fit within main padding */
+            padding: 2rem;
+            background-color: #ffffff;
+            border-radius: 1rem; /* Rounded corners */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        #visualization-container {
+            min-height: 400px; /* Provides space for messages or initial chart */
+            border: 1px solid #e2e8f0; /* Light gray border */
+            border-radius: 0.75rem; /* Slightly rounded corners for visualization area */
+            margin-top: 1.5rem;
+            background-color: #ffffff;
+            overflow: hidden; /* Ensure content stays within rounded corners */
+            display: flex; /* Use flexbox for centering messages */
+            align-items: center; /* Vertically center messages */
+            justify-content: center; /* Horizontally center messages */
+            flex-direction: column; /* Stack chart and table vertically */
+            padding: 1rem; /* Add some padding inside the container */
+        }
+        #d3-chart-area {
+            width: 100%; /* Ensure the chart area takes full width of its container */
+            height: auto; /* Height will be determined by SVG content */
+            display: flex; /* Flexbox to center SVG if it doesn't fill 100% */
+            align-items: center;
+            justify-content: center;
+            flex-grow: 1; /* Allow chart area to grow */
+            margin-bottom: 1.5rem; /* Space between chart and table */
+        }
+        .chart-title {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2d3748; /* Darker gray for title */
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+        /* Style for D3.js elements */
+        .axis path,
+        .axis line {
+            fill: none;
+            stroke: #cbd5e0; /* Light gray for axes */
+            shape-rendering: crispEdges;
+        }
+        .axis text {
+            font-size: 0.875rem;
+            fill: #4a5568; /* Medium gray for axis labels */
+        }
+        /* Bar chart specific styles */
+        .bar {
+            fill: #4299e1; /* Blue color for bars */
+            transition: fill 0.2s ease; /* Smooth transition for hover effect */
+        }
+        .bar:hover {
+            fill: #3182ce; /* Darker blue on hover */
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            width: auto;
+            height: auto;
+            padding: 0.5rem;
+            background: #2d3748; /* Dark background for tooltip */
+            color: #ffffff; /* White text for tooltip */
+            border: 0px;
+            border-radius: 0.5rem;
+            pointer-events: none;
+            font-size: 0.875rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            opacity: 0; /* Initially hidden */
+            transition: opacity 0.2s ease; /* Smooth fade for tooltip */
+        }
+        /* Flexbox utilities for messages */
+        .flex-center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%; /* Occupy full height of parent */
+            width: 100%; /* Occupy full width of parent */
+        }
+
+        /* Table styles */
+        #top-interactions-table-container {
+            width: 100%;
+            max-height: 300px; /* Limit height for scrollability */
+            overflow-y: auto; /* Enable vertical scrolling */
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            background-color: #f8fafc; /* Lighter background for table */
+            padding: 1rem;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); /* Subtle inner shadow */
+        }
+        #top-interactions-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            text-align: left;
+        }
+        #top-interactions-table th,
+        #top-interactions-table td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        #top-interactions-table th {
+            background-color: #edf2f7; /* Light gray for table header */
+            font-weight: bold;
+            color: #2d3748;
+            position: sticky; /* Sticky header for scrollable table */
+            top: 0;
+            z-index: 1; /* Ensure header stays on top */
+        }
+        #top-interactions-table tr:last-child td {
+            border-bottom: none; /* No border for the last row */
+        }
+        #top-interactions-table tbody tr:hover {
+            background-color: #ebf8ff; /* Light blue on row hover */
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Genomic Data Analysis Hub</h1>
+    </header>
+
+    <main>
+        <div class="container">
+            <h1 class="text-3xl font-extrabold text-gray-800 text-center mb-6">Genomic Data Summarizer</h1>
+
+            <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <label for="fileInput" class="block text-lg font-medium text-blue-800 mb-2">
+                    Upload your genomic interaction data (CSV):
+                </label>
+                <input type="file" id="fileInput" accept=".csv" class="block w-full text-sm text-gray-700
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-full file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-500 file:text-white
+                    hover:file:bg-blue-600
+                    transition duration-150 ease-in-out
+                    rounded-md border border-gray-300 shadow-sm
+                ">
+                <p class="text-sm text-gray-600 mt-2">
+                    Please ensure your CSV file has columns named `row_bin`, `col_bin`, and `value` (for interaction strength).
+                </p>
+            </div>
+
+            <div id="visualization-container" class="relative">
+                <!-- D3 Chart Area -->
+                <div id="d3-chart-area" class="flex-center">
+                    <p id="loadingMessage" class="text-center text-gray-500 py-10">Upload a CSV file to see the data summary here.</p>
+                    <p id="errorMessage" class="text-center text-red-500 py-10 hidden"></p>
+                </div>
+
+                <!-- Top Interactions Table Container -->
+                <div id="top-interactions-table-container" class="hidden">
+                    <h3 class="text-lg font-semibold text-gray-800 mb-3 text-center">Top 10 Strongest Interactions</h3>
+                    <table id="top-interactions-table">
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Row Bin</th>
+                                <th>Col Bin</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Table rows will be inserted here by JavaScript -->
+                        </tbody>
+                    </table>
+                    <p id="noTopInteractionsMessage" class="text-center text-gray-500 py-4 hidden">No top interactions to display.</p>
+                </div>
+            </div>
+
+            <!-- LLM Interaction Section -->
+            <div class="mt-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <h2 class="text-xl font-bold text-gray-800 mb-4">Ask the AI about your data</h2>
+                <textarea id="llmQueryInput"
+                    class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3 resize-y"
+                    rows="4" placeholder="e.g., What insights can you provide from the bar chart or top interactions table?"></textarea>
+                <button id="askLlmButton"
+                    class="w-full py-2 px-4 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition duration-150 ease-in-out shadow-md">
+                    Ask AI
+                </button>
+                <div id="llmResponseArea" class="mt-4 p-3 bg-white border border-gray-300 rounded-md text-gray-700">
+                    <p id="llmResponseText">AI responses will appear here.</p>
+                    <p id="llmLoadingIndicator" class="text-center text-gray-500 py-2 hidden">AI is thinking...</p>
+                    <p id="llmErrorMessage" class="text-center text-red-500 py-2 hidden"></p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2023 Genomic Data Analysis. All rights reserved.</p>
+    </footer>
+
+    <!-- D3.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
+    <script>
+        // Define margins for the SVG, fixed regardless of chart size for consistent padding
+        const margin = { top: 40, right: 30, bottom: 60, left: 70 }; // Adjusted margins for bar chart
+
+        const fileInput = document.getElementById('fileInput');
+        const d3ChartArea = document.getElementById('d3-chart-area');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const errorMessage = document.getElementById('errorMessage');
+
+        // New LLM UI element references
+        const llmQueryInput = document.getElementById('llmQueryInput');
+        const askLlmButton = document.getElementById('askLlmButton');
+        const llmResponseArea = document.getElementById('llmResponseArea');
+        const llmResponseText = document.getElementById('llmResponseText');
+        const llmLoadingIndicator = document.getElementById('llmLoadingIndicator');
+        const llmErrorMessage = document.getElementById('llmErrorMessage');
+
+        // Table specific elements
+        const topInteractionsTableContainer = document.getElementById('top-interactions-table-container');
+        const topInteractionsTableBody = document.querySelector('#top-interactions-table tbody');
+        const noTopInteractionsMessage = document.getElementById('noTopInteractionsMessage');
+
+        let svg; // Declare SVG globally to be accessible by update/clear functions
+        let currentData = []; // Store the parsed data globally for re-rendering on resize
+        let currentDataSummary = null; // Store summary for LLM context
+
+        // Function to clear previous visualizations and messages
+        function clearVisualization() {
+            d3ChartArea.innerHTML = ''; // Clear existing SVG and messages
+            topInteractionsTableBody.innerHTML = ''; // Clear table body
+            topInteractionsTableContainer.classList.add('hidden'); // Hide table container
+            noTopInteractionsMessage.classList.add('hidden'); // Hide no data message
+
+            // Re-add essential message containers for dynamic content, but hide them
+            const newLoadingMessage = document.createElement('p');
+            newLoadingMessage.id = 'loadingMessage';
+            newLoadingMessage.className = 'text-center text-gray-500 py-10 hidden';
+            d3ChartArea.appendChild(newLoadingMessage);
+            const newErrorMessage = document.createElement('p');
+            newErrorMessage.id = 'errorMessage';
+            newErrorMessage.className = 'text-center text-red-500 py-10 hidden';
+            d3ChartArea.appendChild(newErrorMessage);
+
+            // Re-get references to ensure they are the new elements (important for dynamic content)
+            Object.assign(window, {
+                loadingMessage: document.getElementById('loadingMessage'),
+                errorMessage: document.getElementById('errorMessage')
+            });
+
+            // Remove any existing tooltips from the body
+            d3.select(".tooltip").remove();
+        }
+
+        // Function to render the D3.js bar chart visualization
+        function renderVisualization(data) {
+            clearVisualization(); // Clear any previous charts and messages
+
+            if (!data || data.length === 0) {
+                errorMessage.textContent = 'No data found in the uploaded file or data is empty.';
+                errorMessage.classList.remove('hidden');
+                d3ChartArea.classList.add('flex-center'); // Ensure messages are centered
+                // Disable LLM interaction
+                llmQueryInput.disabled = true;
+                askLlmButton.disabled = true;
+                llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+                return;
+            }
+
+            // Ensure data has the required columns and parse values
+            let parsedData = data.map(d => ({
+                row_bin: +d.row_bin,
+                col_bin: +d.col_bin,
+                value: +d.value
+            })).filter(d => !isNaN(d.row_bin) && !isNaN(d.col_bin) && !isNaN(d.value));
+
+            if (parsedData.length === 0) {
+                errorMessage.textContent = 'Could not parse numeric `row_bin`, `col_bin`, and `value` from the CSV. Please ensure your file has these columns with numeric data.';
+                errorMessage.classList.remove('hidden');
+                d3ChartArea.classList.add('flex-center');
+                // Disable LLM interaction
+                llmQueryInput.disabled = true;
+                askLlmButton.disabled = true;
+                llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+                return;
+            }
+            d3ChartArea.classList.remove('flex-center'); // Remove flex centering when chart is drawn
+
+            // --- Data Aggregation for Bar Chart (Sum of values per row_bin) ---
+            const rowBinSumsMap = d3.rollup(parsedData, v => d3.sum(v, d => d.value), d => d.row_bin);
+            const rowBinSums = Array.from(rowBinSumsMap, ([row_bin, sum_value]) => ({ row_bin, sum_value }))
+                                    .sort((a, b) => d3.ascending(a.row_bin, b.row_bin)); // Sort by row_bin
+
+            // --- Top Interactions for Table ---
+            const topInteractions = parsedData.sort((a, b) => d3.descending(a.value, b.value)).slice(0, 10);
+
+            // Store summary for LLM context
+            const maxRowSum = d3.max(rowBinSums, d => d.sum_value);
+            const minRowSum = d3.min(rowBinSums, d => d.sum_value);
+            const maxInteractionValue = d3.max(parsedData, d => d.value);
+            const minInteractionValue = d3.min(parsedData, d => d.value);
+
+            currentDataSummary = {
+                numRowBins: rowBinSums.length,
+                maxSumInteractionPerRowBin: maxRowSum ? maxRowSum.toFixed(2) : 'N/A',
+                minSumInteractionPerRowBin: minRowSum ? minRowSum.toFixed(2) : 'N/A',
+                maxIndividualInteractionValue: maxInteractionValue ? maxInteractionValue.toFixed(2) : 'N/A',
+                minIndividualInteractionValue: minInteractionValue ? minInteractionValue.toFixed(2) : 'N/A',
+                top10Interactions: topInteractions.map(d => `(Row: ${d.row_bin}, Col: ${d.col_bin}, Value: ${d.value.toFixed(2)})`).join('; ')
+            };
+
+            // Enable LLM interaction
+            llmQueryInput.disabled = false;
+            askLlmButton.disabled = false;
+            llmResponseText.textContent = 'AI responses will appear here.'; // Reset AI response message
+
+            // --- Bar Chart Rendering ---
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartWidth = containerWidth - margin.left - margin.right;
+            const chartHeight = Math.min(rowBinSums.length * 20 + 50, 500); // Dynamic height, max 500px
+
+            const svgWidth = chartWidth + margin.left + margin.right;
+            const svgHeight = chartHeight + margin.top + margin.bottom;
+
+            svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`)
+                .attr("preserveAspectRatio", "xMidYMid meet")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -margin.top / 2)
+                .attr("class", "chart-title")
+                .text("Total Interaction Strength per Genomic Row Bin");
+
+            const xScale = d3.scaleBand()
+                .domain(rowBinSums.map(d => d.row_bin))
+                .range([0, chartWidth])
+                .padding(0.1);
+
+            const yScale = d3.scaleLinear()
+                .domain([0, d3.max(rowBinSums, d => d.sum_value) * 1.05]) // 5% buffer at the top
+                .range([chartHeight, 0]);
+
+            // X Axis
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(xScale).tickValues(xScale.domain().filter((d, i) => i % Math.ceil(rowBinSums.length / 10) === 0)))
+                .append("text")
+                .attr("class", "x label text-gray-700 text-sm")
+                .attr("text-anchor", "middle")
+                .attr("x", chartWidth / 2)
+                .attr("y", margin.bottom - 10)
+                .text("Genomic Region (Row Bin)");
+
+            // Y Axis
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale).ticks(5))
+                .append("text")
+                .attr("class", "y label text-gray-700 text-sm")
+                .attr("text-anchor", "middle")
+                .attr("y", -margin.left + 20)
+                .attr("x", -chartHeight / 2)
+                .attr("transform", "rotate(-90)")
+                .text("Total Interaction Value");
+
+            // Tooltip for bars
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            // Bars
+            svg.selectAll(".bar")
+                .data(rowBinSums)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => xScale(d.row_bin))
+                .attr("y", d => yScale(d.sum_value))
+                .attr("width", xScale.bandwidth())
+                .attr("height", d => chartHeight - yScale(d.sum_value))
+                .on("mouseover", function(event, d) {
+                    d3.select(this).style("fill", "#3182ce"); // Highlight on hover
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`Row Bin: ${d.row_bin}<br/>Total Value: ${d.sum_value.toFixed(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(event, d) {
+                    d3.select(this).style("fill", "#4299e1"); // Revert color
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+
+            // --- Top Interactions Table Rendering ---
+            if (topInteractions.length > 0) {
+                topInteractionsTableContainer.classList.remove('hidden');
+                topInteractions.forEach((d, i) => {
+                    const row = topInteractionsTableBody.insertRow();
+                    row.insertCell().textContent = i + 1; // Rank
+                    row.insertCell().textContent = d.row_bin;
+                    row.insertCell().textContent = d.col_bin;
+                    row.insertCell().textContent = d.value.toFixed(2);
+                });
+            } else {
+                noTopInteractionsMessage.classList.remove('hidden');
+                topInteractionsTableContainer.classList.remove('hidden'); // Show container even if empty to show message
+            }
+        }
+
+        // Function to call LLM API
+        async function callLlmApi(prompt, dataSummary) {
+            llmResponseText.textContent = ''; // Clear previous response
+            llmErrorMessage.classList.add('hidden');
+            llmLoadingIndicator.classList.remove('hidden');
+
+            try {
+                let chatHistory = [];
+                // Provide LLM with context about the bar chart and top interactions table
+                let contextPrompt = `You are an AI assistant specialized in interpreting genomic interaction data. The current data is summarized as follows:\n\n`;
+                contextPrompt += `- **Bar Chart:** Shows the total interaction strength for ${dataSummary.numRowBins} genomic row bins. The total interaction values per row bin range from ${dataSummary.minSumInteractionPerRowBin} to ${dataSummary.maxSumInteractionPerRowBin}.\n`;
+                contextPrompt += `- **Top 10 Interactions Table:** Lists the individual interactions with the highest strength. The overall individual interaction values in the dataset range from ${dataSummary.minIndividualInteractionValue} to ${dataSummary.maxIndividualInteractionValue}.\n`;
+                contextPrompt += `The top 10 strongest individual interactions are: ${dataSummary.top10Interactions}.\n\n`;
+                contextPrompt += `Based on this summary and general knowledge about genomic interactions, please answer the user's question.`;
+
+                chatHistory.push({ role: "user", parts: [{ text: contextPrompt + "\n\nUser's question: " + prompt }] });
+
+                const payload = { contents: chatHistory };
+                const apiKey = ""; // Canvas will provide this API key automatically
+
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result.candidates && result.candidates.length > 0 &&
+                    result.candidates[0].content && result.candidates[0].content.parts &&
+                    result.candidates[0].content.parts.length > 0) {
+                    const text = result.candidates[0].content.parts[0].text;
+                    llmResponseText.textContent = text;
+                } else {
+                    llmResponseText.textContent = 'AI could not generate a response. Please try again or rephrase your question.';
+                    console.error("LLM response structure unexpected or no content:", result);
+                }
+            } catch (error) {
+                llmErrorMessage.textContent = `Error communicating with AI: ${error.message}. Please check your network or try again later.`;
+                llmErrorMessage.classList.remove('hidden');
+                console.error("Error calling LLM API:", error);
+            } finally {
+                llmLoadingIndicator.classList.add('hidden');
+            }
+        }
+
+        // Event listener for file input change
+        fileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) {
+                clearVisualization();
+                // Restore initial message
+                loadingMessage.textContent = 'Upload a CSV file to see the data summary here.';
+                loadingMessage.classList.remove('hidden');
+                d3ChartArea.classList.add('flex-center');
+                // Disable LLM interaction
+                llmQueryInput.disabled = true;
+                askLlmButton.disabled = true;
+                llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+                return;
+            }
+
+            clearVisualization(); // Clear any existing chart or error messages
+            loadingMessage.textContent = 'Loading data...';
+            loadingMessage.classList.remove('hidden');
+            d3ChartArea.classList.add('flex-center'); // Ensure loading message is centered
+
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const fileContent = e.target.result;
+                try {
+                    d3.csv(URL.createObjectURL(new Blob([fileContent], {type: 'text/csv'})), d3.autoType).then(data => {
+                        currentData = data; // Store the data
+                        renderVisualization(currentData);
+                        loadingMessage.classList.add('hidden');
+                    }).catch(error => {
+                        errorMessage.textContent = `Error parsing CSV: ${error.message}. Please check console for details.`;
+                        errorMessage.classList.remove('hidden');
+                        loadingMessage.classList.add('hidden');
+                        d3ChartArea.classList.add('flex-center');
+                        // Disable LLM interaction on error
+                        llmQueryInput.disabled = true;
+                        askLlmButton.disabled = true;
+                        llmResponseText.textContent = 'Error loading data. AI interaction disabled.';
+                        console.error("Error parsing CSV:", error);
+                    });
+                } catch (error) {
+                    errorMessage.textContent = `Error reading file: ${error.message}`;
+                    errorMessage.classList.remove('hidden');
+                    loadingMessage.classList.add('hidden');
+                    d3ChartArea.classList.add('flex-center');
+                    // Disable LLM interaction on error
+                    llmQueryInput.disabled = true;
+                    askLlmButton.disabled = true;
+                    llmResponseText.textContent = 'Error reading file. AI interaction disabled.';
+                    console.error("Error reading file:", error);
+                }
+            };
+
+            reader.onerror = () => {
+                errorMessage.textContent = 'Failed to read file.';
+                errorMessage.classList.remove('hidden');
+                loadingMessage.classList.add('hidden');
+                d3ChartArea.classList.add('flex-center');
+                // Disable LLM interaction on error
+                llmQueryInput.disabled = true;
+                askLlmButton.disabled = true;
+                llmResponseText.textContent = 'Error reading file. AI interaction disabled.';
+            };
+
+            reader.readAsText(file);
+        });
+
+        // Event listener for LLM button click
+        askLlmButton.addEventListener('click', () => {
+            const query = llmQueryInput.value.trim();
+            if (query && currentData.length > 0 && currentDataSummary) {
+                callLlmApi(query, currentDataSummary);
+            } else if (!query) {
+                llmErrorMessage.textContent = 'Please enter a question for the AI.';
+                llmErrorMessage.classList.remove('hidden');
+            } else {
+                llmErrorMessage.textContent = 'Please upload genomic data first to enable AI interaction.';
+                llmErrorMessage.classList.remove('hidden');
+            }
+        });
+
+        // Resize Observer to re-render the chart when its container changes size
+        const resizeObserver = new ResizeObserver(entries => {
+            for (let entry of entries) {
+                // Check if the observed element is the d3ChartArea and if there is data loaded
+                if (entry.target === d3ChartArea && currentData.length > 0) {
+                    renderVisualization(currentData); // Re-render the chart with the current data
+                }
+            }
+        });
+
+        // Initial setup when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            // Observe the d3ChartArea for size changes
+            resizeObserver.observe(d3ChartArea);
+
+            // Set initial message (already in HTML, just ensure visibility)
+            loadingMessage.classList.remove('hidden');
+            d3ChartArea.classList.add('flex-center');
+
+            // Initially disable LLM input and button, and set default response text
+            llmQueryInput.disabled = true;
+            askLlmButton.disabled = true;
+            llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+        });
+    </script>
+</body>
+</html>
+
