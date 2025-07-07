@@ -1,9 +1,7 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
+<!DOCTYPE html><html lang="en"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Genomic Data Website</title>
+    <title>Genomic Data Analyzer with D3.js & Three.js</title>
     <!-- Tailwind CSS for basic styling across the whole site -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -62,22 +60,29 @@
             border-radius: 0.75rem; /* Slightly rounded corners for visualization area */
             margin-top: 1.5rem;
             background-color: #ffffff;
-            overflow: hidden; /* Ensure content stays within rounded corners */
+            overflow: auto; /* Changed to auto to allow scrolling for many tracks */
             display: flex; /* Use flexbox for centering messages */
             align-items: center; /* Vertically center messages */
-            justify-content: center; /* Horizontally center messages */
-            flex-direction: column; /* Stack chart and table vertically */
+            justify-content: flex-start; /* Align tracks to the top */
+            flex-direction: column; /* Stack chart and tables vertically */
             padding: 1rem; /* Add some padding inside the container */
         }
         #d3-chart-area {
             width: 100%; /* Ensure the chart area takes full width of its container */
-            height: auto; /* Height will be determined by SVG content */
-            display: flex; /* Flexbox to center SVG if it doesn't fill 100% */
+            height: auto; /* Height will be determined by SVG content or canvas */
+            display: flex; /* Flexbox to center SVG/canvas if it doesn't fill 100% */
             align-items: center;
             justify-content: center;
             flex-grow: 1; /* Allow chart area to grow */
-            margin-bottom: 1.5rem; /* Space between chart and table */
+            margin-bottom: 1.5rem; /* Space between chart and tables */
         }
+        /* Specific styling for the 3D canvas */
+        #three-js-canvas {
+            display: block; /* Remove extra space below canvas */
+            background-color: #f0f4f8; /* Match body background */
+            border-radius: 0.5rem;
+        }
+
         .chart-title {
             font-size: 1.5rem;
             font-weight: bold;
@@ -98,12 +103,58 @@
         }
         /* Bar chart specific styles */
         .bar {
-            fill: #4299e1; /* Blue color for bars */
             transition: fill 0.2s ease; /* Smooth transition for hover effect */
         }
-        .bar:hover {
+        .bar.up-regulated, .bed-feature {
+            fill: #4299e1; /* Blue for positive fold change */
+        }
+        .bar.down-regulated {
+            fill: #ef4444; /* Red for negative fold change */
+        }
+        .bar.up-regulated:hover, .bed-feature:hover {
             fill: #3182ce; /* Darker blue on hover */
         }
+        .bar.down-regulated:hover {
+            fill: #dc2626; /* Darker red on hover */
+        }
+
+        /* Scatter plot specific styles */
+        .dot {
+            stroke: #fff; /* White stroke for dots */
+            stroke-width: 0.5px;
+            transition: fill 0.2s ease, stroke-width 0.2s ease, r 0.2s ease;
+        }
+        .dot.significant-up {
+            fill: #4299e1; /* Blue for significant up */
+        }
+        .dot.significant-down {
+            fill: #ef4444; /* Red for significant down */
+        }
+        .dot.not-significant {
+            fill: #a0aec0; /* Gray for not significant */
+        }
+        .dot:hover {
+            stroke-width: 2px;
+            r: 5px; /* Slightly larger on hover */
+        }
+        .threshold-line {
+            stroke: #4a5568; /* Dark gray for threshold lines */
+            stroke-width: 1px;
+            stroke-dasharray: 4 2; /* Dashed line */
+        }
+
+        /* Heatmap specific styles */
+        .heatmap-cell {
+            stroke-width: 0.1px; /* Very thin stroke to delineate cells */
+            stroke: #f0f4f8; /* Match background for subtle separation */
+            transition: stroke 0.2s ease, stroke-width 0.2s ease; /* Smooth transition for hover effect */
+        }
+        .heatmap-cell:hover {
+            stroke: #fff; /* Highlight on hover */
+            stroke-width: 1px;
+        }
+
+
         .tooltip {
             position: absolute;
             text-align: center;
@@ -130,8 +181,17 @@
         }
 
         /* Table styles */
-        #top-interactions-table-container {
+        .gene-table-section {
             width: 100%;
+            display: flex;
+            justify-content: space-around; /* Distribute tables */
+            gap: 1rem; /* Space between tables */
+            flex-wrap: wrap; /* Allow tables to wrap on smaller screens */
+        }
+
+        .gene-table-container {
+            flex: 1; /* Allow tables to grow and shrink */
+            min-width: 300px; /* Minimum width for each table */
             max-height: 300px; /* Limit height for scrollability */
             overflow-y: auto; /* Enable vertical scrolling */
             border: 1px solid #e2e8f0;
@@ -140,18 +200,25 @@
             padding: 1rem;
             box-shadow: inset 0 1px 3px rgba(0,0,0,0.05); /* Subtle inner shadow */
         }
-        #top-interactions-table {
+        .gene-table-container h3 {
+            font-size: 1.125rem; /* text-lg */
+            font-weight: 600; /* font-semibold */
+            color: #2d3748; /* gray-800 */
+            margin-bottom: 0.75rem; /* mb-3 */
+            text-align: center;
+        }
+        .gene-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.9rem;
+            font-size: 0.875rem; /* text-sm */
             text-align: left;
         }
-        #top-interactions-table th,
-        #top-interactions-table td {
-            padding: 0.75rem 1rem;
+        .gene-table th,
+        .gene-table td {
+            padding: 0.5rem 0.75rem; /* py-2 px-3 */
             border-bottom: 1px solid #e2e8f0;
         }
-        #top-interactions-table th {
+        .gene-table th {
             background-color: #edf2f7; /* Light gray for table header */
             font-weight: bold;
             color: #2d3748;
@@ -159,28 +226,31 @@
             top: 0;
             z-index: 1; /* Ensure header stays on top */
         }
-        #top-interactions-table tr:last-child td {
+        .gene-table tr:last-child td {
             border-bottom: none; /* No border for the last row */
         }
-        #top-interactions-table tbody tr:hover {
+        .gene-table tbody tr:hover {
             background-color: #ebf8ff; /* Light blue on row hover */
         }
-    </style>
-</head>
-<body>
+        .no-genes-message {
+            text-align: center;
+            color: #a0aec0; /* gray-500 */
+            padding: 1rem;
+        }
+    </style></head><body>
     <header>
         <h1>Genomic Data Analysis Hub</h1>
     </header>
 
     <main>
         <div class="container">
-            <h1 class="text-3xl font-extrabold text-gray-800 text-center mb-6">Genomic Data Summarizer</h1>
+            <h1 class="text-3xl font-extrabold text-gray-800 text-center mb-6">Genomic Data Analyzer</h1>
 
             <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <label for="fileInput" class="block text-lg font-medium text-blue-800 mb-2">
-                    Upload your genomic interaction data (CSV):
+                    Upload your data file (CSV, BED, or VCF):
                 </label>
-                <input type="file" id="fileInput" accept=".csv" class="block w-full text-sm text-gray-700
+                <input type="file" id="fileInput" accept=".csv,.bed,.vcf" class="block w-full text-sm text-gray-700
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-full file:border-0
                     file:text-sm file:font-semibold
@@ -189,35 +259,72 @@
                     transition duration-150 ease-in-out
                     rounded-md border border-gray-300 shadow-sm
                 ">
-                <p class="text-sm text-gray-600 mt-2">
-                    Please ensure your CSV file has columns named `row_bin`, `col_bin`, and `value` (for interaction strength).
+                <p id="fileInputInstructions" class="text-sm text-gray-600 mt-2">
+                    Your file will be automatically analyzed upon upload.
                 </p>
             </div>
 
+            <!-- Visualization Options Dropdown (Conditional) -->
+            <div id="visualizationOptionsSection" class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-center hidden">
+                <label for="visualizationSelect" class="block text-lg font-medium text-gray-800 mr-4">
+                    Choose Visualization:
+                </label>
+                <select id="visualizationSelect" class="p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <!-- Options will be dynamically loaded based on data type -->
+                </select>
+            </div>
+
+            <!-- Filtering and Threshold Options (Conditional) -->
+            <div id="analysisSettingsSection" class="mb-6 p-4 bg-yellow-50 rounded-lg border border-yellow-200 hidden">
+                <h3 class="text-xl font-bold text-yellow-800 mb-3 text-center">Analysis Settings</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div>
+                        <label for="fcThresholdInput" class="block text-sm font-medium text-gray-700">Fold Change Threshold (|FC| ≥):</label>
+                        <input type="number" id="fcThresholdInput" value="1.5" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="fdrThresholdInput" class="block text-sm font-medium text-gray-700">FDR Threshold (FDR ≤):</label>
+                        <input type="number" id="fdrThresholdInput" value="0.05" step="0.001" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="minFcFilterInput" class="block text-sm font-medium text-gray-700">Min Fold Change Filter:</label>
+                        <input type="number" id="minFcFilterInput" placeholder="e.g., -2.0" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="maxFcFilterInput" class="block text-sm font-medium text-gray-700">Max Fold Change Filter:</label>
+                        <input type="number" id="maxFcFilterInput" placeholder="e.g., 2.0" step="0.1" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                    </div>
+                    <div>
+                        <label for="maxFdrFilterInput" class="block text-sm font-medium text-gray-700">Max FDR Filter:</label>
+                        <input type="number" id="maxFdrFilterInput" placeholder="e.g., 0.1" step="0.001" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
+                    </div>
+                    <div class="flex items-end">
+                        <button id="applyFiltersButton" class="w-full py-2 px-4 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition duration-150 ease-in-out shadow-md">
+                            Apply Filters
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+
             <div id="visualization-container" class="relative">
-                <!-- D3 Chart Area -->
+                <!-- D3 Chart Area / Three.js Canvas Area -->
                 <div id="d3-chart-area" class="flex-center">
-                    <p id="loadingMessage" class="text-center text-gray-500 py-10">Upload a CSV file to see the data summary here.</p>
+                    <p id="loadingMessage" class="text-center text-gray-500 py-10">Upload a file to begin analysis.</p>
                     <p id="errorMessage" class="text-center text-red-500 py-10 hidden"></p>
                 </div>
 
-                <!-- Top Interactions Table Container -->
-                <div id="top-interactions-table-container" class="hidden">
-                    <h3 class="text-lg font-semibold text-gray-800 mb-3 text-center">Top 10 Strongest Interactions</h3>
-                    <table id="top-interactions-table">
-                        <thead>
-                            <tr>
-                                <th>Rank</th>
-                                <th>Row Bin</th>
-                                <th>Col Bin</th>
-                                <th>Value</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <!-- Table rows will be inserted here by JavaScript -->
-                        </tbody>
-                    </table>
-                    <p id="noTopInteractionsMessage" class="text-center text-gray-500 py-4 hidden">No top interactions to display.</p>
+                <!-- Gene Tables Section (Conditional) -->
+                <div class="gene-table-section hidden" id="geneTablesSection">
+                    <!-- Top Up-regulated Genes Table Container -->
+                    <div class="gene-table-container" id="upRegulatedTableContainer">
+                        <!-- Content dynamically loaded -->
+                    </div>
+
+                    <!-- Top Down-regulated Genes Table Container (Hidden for BED) -->
+                    <div class="gene-table-container" id="downRegulatedTableContainer">
+                        <!-- Content dynamically loaded -->
+                    </div>
                 </div>
             </div>
 
@@ -226,7 +333,7 @@
                 <h2 class="text-xl font-bold text-gray-800 mb-4">Ask the AI about your data</h2>
                 <textarea id="llmQueryInput"
                     class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3 resize-y"
-                    rows="4" placeholder="e.g., What insights can you provide from the bar chart or top interactions table?"></textarea>
+                    rows="4" placeholder="e.g., What biological pathways might be affected by these up-regulated genes?"></textarea>
                 <button id="askLlmButton"
                     class="w-full py-2 px-4 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition duration-150 ease-in-out shadow-md">
                     Ask AI
@@ -246,17 +353,35 @@
 
     <!-- D3.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <!-- Three.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls for interactive camera -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
 
     <script>
         // Define margins for the SVG, fixed regardless of chart size for consistent padding
-        const margin = { top: 40, right: 30, bottom: 60, left: 70 }; // Adjusted margins for bar chart
+        const margin = { top: 40, right: 30, bottom: 60, left: 70 };
 
         const fileInput = document.getElementById('fileInput');
+        const fileInputInstructions = document.getElementById('fileInputInstructions');
+        const visualizationOptionsSection = document.getElementById('visualizationOptionsSection');
+        const visualizationSelect = document.getElementById('visualizationSelect');
         const d3ChartArea = document.getElementById('d3-chart-area');
         const loadingMessage = document.getElementById('loadingMessage');
         const errorMessage = document.getElementById('errorMessage');
 
-        // New LLM UI element references
+        // Filter and threshold inputs
+        const analysisSettingsSection = document.getElementById('analysisSettingsSection');
+        const fcThresholdInput = document.getElementById('fcThresholdInput');
+        const fdrThresholdInput = document.getElementById('fdrThresholdInput');
+        const minFcFilterInput = document.getElementById('minFcFilterInput');
+        const maxFcFilterInput = document.getElementById('maxFcFilterInput');
+        const maxFdrFilterInput = document.getElementById('maxFdrFilterInput');
+        const applyFiltersButton = document.getElementById('applyFiltersButton');
+
+
+        // LLM UI element references
         const llmQueryInput = document.getElementById('llmQueryInput');
         const askLlmButton = document.getElementById('askLlmButton');
         const llmResponseArea = document.getElementById('llmResponseArea');
@@ -265,20 +390,137 @@
         const llmErrorMessage = document.getElementById('llmErrorMessage');
 
         // Table specific elements
-        const topInteractionsTableContainer = document.getElementById('top-interactions-table-container');
-        const topInteractionsTableBody = document.querySelector('#top-interactions-table tbody');
-        const noTopInteractionsMessage = document.getElementById('noTopInteractionsMessage');
+        const geneTablesSection = document.getElementById('geneTablesSection');
+        const upRegulatedTableContainer = document.getElementById('upRegulatedTableContainer');
+        const downRegulatedTableContainer = document.getElementById('downRegulatedTableContainer');
 
-        let svg; // Declare SVG globally to be accessible by update/clear functions
-        let currentData = []; // Store the parsed data globally for re-rendering on resize
+        let svg; // Declare SVG globally to be accessible by D3 functions
+        let rawDataFromFile = []; // Store the initial raw data from the file
+        let processedData = []; // Store data after initial parsing
         let currentDataSummary = null; // Store summary for LLM context
+        let currentDataType = null; // Track current data type, determined automatically
+
+        // Three.js specific variables
+        let scene, camera, renderer, controls, raycaster, mouse;
+        let threeDPoints = []; // To store Three.js mesh objects for interaction
+        let threeDTooltip; // HTML tooltip for 3D plot
+        let animationFrameId; // To store the ID of the animation frame for Three.js
+
+        // Define thresholds for Volcano Plot significance (default values, now customizable)
+        let FOLD_CHANGE_THRESHOLD = 1.5;
+        let FDR_THRESHOLD = 0.05;
+        const MAX_HEATMAP_GENES = 50; // Limit for genes shown in heatmap for readability
+
+        // Define common alternative column names
+        const COLUMN_MAPPINGS = {
+            geneSymbol: ['Gene_symbol', 'Gene', 'Symbol', 'ID', 'Name'],
+            foldChange: ['Foldchange', 'FC', 'Log2FC', 'logFC', 'log2FoldChange', 'Fold_Change'],
+            pValue: ['PValue', 'P-value', 'P_value', 'p_val', 'p.value'],
+            fdr: ['FDR', 'Adjusted P-value', 'Adj.P.Val', 'padj', 'qvalue', 'QValue', 'FDR_Value'],
+            sampleValue: ['1posH', '2posH', '3posH', '4posH', '5posH', '6posH', 'Expression', 'Value'],
+            // Hi-C specific
+            rowBin: ['row_bin', 'Row', 'Bin1'],
+            colBin: ['col_bin', 'Col', 'Bin2'],
+            interactionValue: ['value', 'Interaction', 'Count', 'Frequency'],
+            // BED specific
+            bedChrom: ['chrom', 'Chromosome', 'Chr'],
+            bedStart: ['chromStart', 'Start', 'chromStart_0based'],
+            bedEnd: ['chromEnd', 'End'],
+            bedName: ['name', 'ID', 'Feature', 'Gene'], // Gene can also be name in BED
+            bedScore: ['score', 'Value', 'Signal']
+        };
+
+        /**
+         * Finds the actual column names in the provided headers based on predefined mappings.
+         * Returns an object mapping generic names (e.g., 'geneSymbol') to actual column names found.
+         * If a required column is not found, its value in the returned object will be null.
+         * @param {string[]} headers - An array of column headers from the CSV.
+         * @param {string[]} possibleKeys - An array of keys from COLUMN_MAPPINGS to search for.
+         * @returns {Object} An object mapping generic names to actual column names found (or null if not found).
+         */
+        function findColumnNames(headers, possibleKeys) {
+            const foundColumns = {};
+            for (const key of possibleKeys) {
+                const possibleNames = COLUMN_MAPPINGS[key];
+                let foundName = null;
+                for (const name of possibleNames) {
+                    // Perform case-insensitive and trim-whitespace comparison
+                    const normalizedHeader = headers.find(h => h.trim().toLowerCase() === name.trim().toLowerCase());
+                    if (normalizedHeader) {
+                        foundName = normalizedHeader; // Use the actual header from the data
+                        break;
+                    }
+                }
+                foundColumns[key] = foundName; // Store the actual header name found, or null
+            }
+            return foundColumns;
+        }
+
+        /**
+         * Identifies sample columns from the CSV headers.
+         * Assumes any column that is not a core gene expression column and contains numeric-like data is a sample column.
+         * @param {string[]} headers - All headers from the CSV.
+         * @param {Object} coreColumnNames - Object of identified core column names (geneSymbol, foldChange, etc.).
+         * @param {Array<Object>} rawData - The raw parsed CSV data from D3 to check for numeric content.
+         * @returns {string[]} An array of identified sample column names.
+         */
+        function findSampleColumns(headers, coreColumnNames, rawData) {
+            const coreNames = Object.values(coreColumnNames);
+            const sampleColumns = [];
+
+            headers.forEach(header => {
+                // If it's not one of the core columns
+                if (!coreNames.includes(header)) {
+                    // Check if the first few rows suggest it's numeric data
+                    const isNumericColumn = rawData.slice(0, 10).every(row => {
+                        const value = row[header];
+                        return value === null || value === undefined || value === '' || !isNaN(Number(value));
+                    });
+                    if (isNumericColumn) {
+                        sampleColumns.push(header);
+                    }
+                }
+            });
+            return sampleColumns;
+        }
+
 
         // Function to clear previous visualizations and messages
         function clearVisualization() {
             d3ChartArea.innerHTML = ''; // Clear existing SVG and messages
-            topInteractionsTableBody.innerHTML = ''; // Clear table body
-            topInteractionsTableContainer.classList.add('hidden'); // Hide table container
-            noTopInteractionsMessage.classList.add('hidden'); // Hide no data message
+            upRegulatedTableContainer.innerHTML = ''; // Clear content in gene tables
+            downRegulatedTableContainer.innerHTML = '';
+            geneTablesSection.classList.add('hidden'); // Hide table section
+
+
+            // Stop and dispose of Three.js renderer if it exists
+            if (renderer) {
+                if (animationFrameId) { // Only cancel if an animation frame was requested
+                    cancelAnimationFrame(animationFrameId);
+                }
+                // Only remove event listeners if the canvas element exists and listeners were attached
+                const canvas = document.getElementById('three-js-canvas');
+                if (canvas && typeof onMouseMove === 'function') { // Check if onMouseMove is defined and canvas exists
+                    canvas.removeEventListener('mousemove', onMouseMove, false);
+                }
+                if (typeof onWindowResize === 'function') { // Check if onWindowResize is defined
+                    window.removeEventListener('resize', onWindowResize, false);
+                }
+
+                renderer.dispose();
+                renderer = null;
+                scene = null;
+                camera = null;
+                controls = null;
+                threeDPoints = [];
+                // Remove any existing Three.js canvas
+                if (canvas) {
+                    canvas.remove();
+                }
+            }
+
+            // Remove any existing tooltips from the body
+            d3.select(".tooltip").remove();
 
             // Re-add essential message containers for dynamic content, but hide them
             const newLoadingMessage = document.createElement('p');
@@ -295,77 +537,555 @@
                 loadingMessage: document.getElementById('loadingMessage'),
                 errorMessage: document.getElementById('errorMessage')
             });
-
-            // Remove any existing tooltips from the body
-            d3.select(".tooltip").remove();
         }
 
-        // Function to render the D3.js bar chart visualization
-        function renderVisualization(data) {
-            clearVisualization(); // Clear any previous charts and messages
+        // Helper function to create a text sprite for 3D axis labels
+        function renderTextSprite(message, x, y, z, color = '#4a5568', fontSize = 20) {
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            context.font = `Bold ${fontSize}px Inter, sans-serif`;
+            context.fillStyle = color;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+
+            const metrics = context.measureText(message);
+            const textWidth = metrics.width;
+            const textHeight = fontSize * 1.2; // Approximate height
+
+            canvas.width = textWidth + 20; // Add padding
+            canvas.height = textHeight + 10;
+            context.font = `Bold ${fontSize}px Inter, sans-serif`; // Re-set font after canvas resize
+            context.fillStyle = color;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            context.fillText(message, canvas.width / 2, canvas.height / 2);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(spriteMaterial);
+
+            // Scale sprite based on text dimensions and desired size in 3D space
+            sprite.scale.set(canvas.width * 0.2, canvas.height * 0.2, 1); // Adjust multiplier as needed
+            sprite.position.set(x, y, z);
+            return sprite;
+        }
+
+        /**
+         * Applies filters to the raw data and prepares it for visualization.
+         * @param {Array<Object>} data - The raw parsed data from the CSV.
+         * @returns {Array<Object>} The filtered and processed data.
+         */
+        function applyGeneExpressionFilters(data) {
+            // Get current filter values, default to null if empty
+            const minFc = fcThresholdInput.value !== '' ? parseFloat(fcThresholdInput.value) : null;
+            const maxFc = maxFcFilterInput.value !== '' ? parseFloat(maxFcFilterInput.value) : null;
+            const maxFdr = maxFdrFilterInput.value !== '' ? parseFloat(maxFdrFilterInput.value) : null;
+
+            // Update global thresholds for significance based on user input
+            FOLD_CHANGE_THRESHOLD = parseFloat(fcThresholdInput.value);
+            FDR_THRESHOLD = parseFloat(fdrThresholdInput.value);
+
+            return data.filter(d => {
+                let pass = true;
+                if (minFc !== null && d.foldchange < minFc) pass = false;
+                if (maxFc !== null && d.foldchange > maxFc) pass = false;
+                if (maxFdr !== null && d.fdr > maxFdr) pass = false;
+                return pass;
+            });
+        }
+
+        /**
+         * Parses BED file data into a structured format, attempting to use named columns first, then indexed.
+         * @param {Array<Object>} data - Raw data parsed from the BED file.
+         * @param {Object} columnNames - Mapped column names for BED (can have nulls if not found).
+         * @returns {Array<Object>} Parsed BED regions.
+         */
+        function parseBedData(data, columnNames) {
+            const parsedRegions = [];
+            let useIndexedParsing = false;
+
+            const headers = data.columns;
+
+            // Check if required named columns were found
+            if (!columnNames.bedChrom || !columnNames.bedStart || !columnNames.bedEnd) {
+                useIndexedParsing = true;
+            }
+
+            // If we are using indexed parsing, we must have at least 3 columns
+            if (useIndexedParsing && headers.length < 3) {
+                 throw new Error("BED file must have at least 3 columns (chrom, start, end).");
+            }
+
+            data.forEach(d => {
+                let chrom, start, end, name, score;
+
+                if (useIndexedParsing) {
+                    // CORRECTED: Use the actual header keys by their index.
+                    chrom = d[headers[0]];
+                    start = +d[headers[1]];
+                    end = +d[headers[2]];
+                    name = headers.length > 3 ? (d[headers[3]] || '') : '';
+                    score = headers.length > 4 ? (+d[headers[4]] || 0) : 0;
+                } else {
+                    // Use named columns
+                    chrom = d[columnNames.bedChrom];
+                    start = +d[columnNames.bedStart];
+                    end = +d[columnNames.bedEnd];
+                    name = d[columnNames.bedName] || '';
+                    score = +d[columnNames.bedScore] || 0;
+                }
+
+                // Filter out invalid regions
+                if (chrom && !isNaN(start) && !isNaN(end) && start < end) {
+                    parsedRegions.push({ chrom, start, end, name, score });
+                }
+            });
+
+            if (parsedRegions.length === 0 && data.length > 0) {
+                throw new Error("Could not parse valid genomic regions from the BED file. Please ensure it has at least 3 columns (chrom, start, end) with numeric coordinates, or standard headers.");
+            }
+
+            return parsedRegions;
+        }
+
+        /**
+         * Parses VCF data into a structured format.
+         * @param {Array<Object>} data - Raw data parsed from the VCF file.
+         * @returns {Array<Object>} Parsed variants.
+         */
+        function parseVcfData(data) {
+            const variants = [];
+            const chromKey = data.columns[0];
+            if (!chromKey || !chromKey.toUpperCase().startsWith('#CHROM')) {
+                console.warn("VCF header not found or is non-standard. Attempting to parse anyway.");
+            }
+
+            data.forEach(row => {
+                const chrom = row[data.columns[0]];
+                const pos = +row[data.columns[1]];
+                const id = row[data.columns[2]];
+                const ref = row[data.columns[3]];
+                const alt = row[data.columns[4]];
+                const qual = +row[data.columns[5]];
+                const filter = row[data.columns[6]];
+
+                // Basic validation
+                if (chrom && !isNaN(pos) && ref && alt) {
+                    variants.push({ chrom, pos, id, ref, alt, qual, filter });
+                }
+            });
+            return variants;
+        }
+
+        /**
+         * Counts the types of variants (SNP, insertion, deletion) in a dataset.
+         * @param {Array<Object>} variants - The parsed variant data.
+         * @returns {Object} An object with counts for each variant type.
+         */
+        function countVariantTypes(variants) {
+            const counts = { snp: 0, insertion: 0, deletion: 0, other: 0 };
+            variants.forEach(v => {
+                if (v.ref.length === 1 && v.alt.length === 1) {
+                    counts.snp++;
+                } else if (v.ref.length < v.alt.length) {
+                    counts.insertion++;
+                } else if (v.ref.length > v.alt.length) {
+                    counts.deletion++;
+                } else {
+                    counts.other++;
+                }
+            });
+            return counts;
+        }
+
+
+        // Main rendering function, now dispatches based on data type and visualization type
+        function renderData(data, dataType, visualizationType) {
+            clearVisualization(); 
 
             if (!data || data.length === 0) {
                 errorMessage.textContent = 'No data found in the uploaded file or data is empty.';
                 errorMessage.classList.remove('hidden');
-                d3ChartArea.classList.add('flex-center'); // Ensure messages are centered
-                // Disable LLM interaction
-                llmQueryInput.disabled = true;
-                askLlmButton.disabled = true;
-                llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+                d3ChartArea.classList.add('flex-center');
+                disableAllControls();
                 return;
             }
 
-            // Ensure data has the required columns and parse values
-            let parsedData = data.map(d => ({
-                row_bin: +d.row_bin,
-                col_bin: +d.col_bin,
-                value: +d.value
-            })).filter(d => !isNaN(d.row_bin) && !isNaN(d.col_bin) && !isNaN(d.value));
+            let columnNames;
+            let sampleColumns = [];
+            processedData = []; 
 
-            if (parsedData.length === 0) {
-                errorMessage.textContent = 'Could not parse numeric `row_bin`, `col_bin`, and `value` from the CSV. Please ensure your file has these columns with numeric data.';
+            try {
+                const headers = data.columns;
+
+                if (dataType === 'geneExpression') {
+                    const coreRequiredColumns = ['geneSymbol', 'foldChange', 'pValue', 'fdr'];
+                    columnNames = findColumnNames(headers, coreRequiredColumns);
+
+                    if (!columnNames.geneSymbol || !columnNames.foldChange || !columnNames.pValue || !columnNames.fdr) {
+                        throw new Error(`Missing one or more required gene expression columns. Please ensure your CSV has headers for Gene Symbol, Fold Change, P-Value, and FDR.`);
+                    }
+
+                    sampleColumns = findSampleColumns(headers, columnNames, data);
+
+                    let initialParsedData = data.map(d => {
+                        const obj = {
+                            gene_symbol: d[columnNames.geneSymbol],
+                            foldchange: +d[columnNames.foldChange],
+                            pvalue: +d[columnNames.pValue],
+                            fdr: +d[columnNames.fdr],
+                            negLog10FDR: (d[columnNames.fdr] > 0) ? -Math.log10(d[columnNames.fdr]) : d3.max(data, val => (val[columnNames.fdr] > 0 ? -Math.log10(val[columnNames.fdr]) : 0)) * 1.1
+                        };
+                        sampleColumns.forEach(sampleCol => {
+                            obj[sampleCol] = +d[sampleCol];
+                        });
+                        return obj;
+                    }).filter(d => d.gene_symbol && !isNaN(d.foldchange) && !isNaN(d.pvalue) && !isNaN(d.fdr) && !isNaN(d.negLog10FDR) &&
+                              (visualizationType !== 'threeDScatter' || !isNaN(d[columnNames.sampleValue])) &&
+                              (visualizationType !== 'heatmap' || sampleColumns.every(col => !isNaN(d[col]))));
+
+                    processedData = applyGeneExpressionFilters(initialParsedData);
+
+                    if (processedData.length === 0) {
+                        errorMessage.textContent = 'No data found after applying filters. Please adjust your filter settings.';
+                        errorMessage.classList.remove('hidden');
+                        d3ChartArea.classList.add('flex-center');
+                        disableAllControls();
+                        return;
+                    }
+
+                    const upRegulatedGenesForTable = processedData.filter(d => d.foldchange > 0).sort((a, b) => d3.descending(a.foldchange, b.foldchange));
+                    const downRegulatedGenesForTable = processedData.filter(d => d.foldchange < 0).sort((a, b) => d3.ascending(a.foldchange, b.foldchange));
+                    const top10UpRegulated = upRegulatedGenesForTable.slice(0, 10);
+                    const top10DownRegulated = downRegulatedGenesForTable.slice(0, 10);
+                    const significantUpRegulated = processedData.filter(d => d.foldchange >= FOLD_CHANGE_THRESHOLD && d.fdr <= FDR_THRESHOLD);
+                    const significantDownRegulated = processedData.filter(d => d.foldchange <= -FOLD_CHANGE_THRESHOLD && d.fdr <= FDR_THRESHOLD);
+
+                    currentDataSummary = {
+                        type: 'geneExpression',
+                        numGenes: processedData.length,
+                        minFoldChange: d3.min(processedData, d => d.foldchange) ? d3.min(processedData, d => d.foldchange).toFixed(2) : 'N/A',
+                        maxFoldChange: d3.max(processedData, d => d.foldchange) ? d3.max(processedData, d => d.foldchange).toFixed(2) : 'N/A',
+                        numSignificantUpRegulated: significantUpRegulated.length,
+                        numSignificantDownRegulated: significantDownRegulated.length,
+                        foldChangeThreshold: FOLD_CHANGE_THRESHOLD,
+                        fdrThreshold: FDR_THRESHOLD,
+                        top10UpRegulated: top10UpRegulated.map(d => `(${d.gene_symbol}, FC: ${d.foldchange.toFixed(2)}, FDR: ${d.fdr.toExponential(2)})`).join('; '),
+                        top10DownRegulated: top10DownRegulated.map(d => `(${d.gene_symbol}, FC: ${d.foldchange.toFixed(2)}, FDR: ${d.fdr.toExponential(2)})`).join('; ')
+                    };
+                    if (visualizationType === 'threeDScatter' && columnNames.sampleValue) {
+                        currentDataSummary.sampleValueColumn = columnNames.sampleValue;
+                        currentDataSummary.minSampleValue = d3.min(processedData, d => d[columnNames.sampleValue]) ? d3.min(processedData, d => d[columnNames.sampleValue]).toFixed(2) : 'N/A';
+                        currentDataSummary.maxSampleValue = d3.max(processedData, d => d[columnNames.sampleValue]) ? d3.max(processedData, d => d[columnNames.sampleValue]).toFixed(2) : 'N/A';
+                    }
+                    if (visualizationType === 'heatmap' && sampleColumns.length > 0) {
+                        const allSampleValues = processedData.flatMap(d => sampleColumns.map(col => d[col]));
+                        currentDataSummary.numSampleColumns = sampleColumns.length;
+                        currentDataSummary.minHeatmapValue = d3.min(allSampleValues) ? d3.min(allSampleValues).toFixed(2) : 'N/A';
+                        currentDataSummary.maxHeatmapValue = d3.max(allSampleValues) ? d3.max(allSampleValues).toFixed(2) : 'N/A';
+                        currentDataSummary.heatmapGenesCount = Math.min(processedData.length, MAX_HEATMAP_GENES);
+                    }
+
+                    renderGeneTables(top10UpRegulated, top10DownRegulated);
+
+                    if (visualizationType === 'barChart') {
+                        const sortedForBarChart = [...processedData].sort((a, b) => d3.descending(a.foldchange, b.foldchange));
+                        renderBarChart(sortedForBarChart);
+                    } else if (visualizationType === 'volcanoPlot') {
+                        renderVolcanoPlot(processedData);
+                    } else if (visualizationType === 'threeDScatter') {
+                        render3DScatterPlot(processedData, columnNames.sampleValue);
+                    } else if (visualizationType === 'heatmap') {
+                        renderHeatmap(processedData, sampleColumns);
+                    }
+
+                } else if (dataType === 'hiCInteraction') {
+                    const hiCRequiredColumns = ['rowBin', 'colBin', 'interactionValue'];
+                    columnNames = findColumnNames(headers, hiCRequiredColumns);
+
+                    if (!columnNames.rowBin || !columnNames.colBin || !columnNames.interactionValue) {
+                        throw new Error(`Missing one or more required Hi-C columns. Please ensure your CSV has headers for Row Bin, Column Bin, and Interaction Value.`);
+                    }
+
+                    processedData = data.map(d => ({
+                        row_bin: +d[columnNames.rowBin],
+                        col_bin: +d[columnNames.colBin],
+                        value: +d[columnNames.interactionValue]
+                    })).filter(d => !isNaN(d.row_bin) && !isNaN(d.col_bin) && !isNaN(d.value));
+
+                    if (processedData.length === 0) {
+                        errorMessage.textContent = 'Could not parse numeric `row_bin`, `col_bin`, and `value` from the CSV. Please ensure your file has these columns with numeric data.';
+                        errorMessage.classList.remove('hidden');
+                        d3ChartArea.classList.add('flex-center');
+                        disableAllControls();
+                        return;
+                    }
+
+                    const rowBins = Array.from(new Set(processedData.map(d => d.row_bin))).sort(d3.ascending);
+                    const colBins = Array.from(new Set(data.map(d => d.col_bin))).sort(d3.ascending);
+                    const minInteraction = d3.min(processedData, d => d.value);
+                    const maxInteraction = d3.max(processedData, d => d.value);
+
+                    currentDataSummary = {
+                        type: 'hiCInteraction',
+                        numInteractions: processedData.length,
+                        numRowBins: rowBins.length,
+                        numColBins: colBins.length,
+                        minInteractionValue: minInteraction ? minInteraction.toFixed(2) : 'N/A',
+                        maxInteractionValue: maxInteraction ? maxInteraction.toFixed(2) : 'N/A'
+                    };
+
+                    renderHiCHeatmap(processedData);
+
+                } else if (dataType === 'genomicRegions') {
+                    const bedRequiredColumns = ['bedChrom', 'bedStart', 'bedEnd'];
+                    columnNames = findColumnNames(headers, bedRequiredColumns);
+                    processedData = parseBedData(data, columnNames);
+
+                    if (processedData.length === 0) {
+                        errorMessage.textContent = 'Could not parse valid genomic regions from the BED file. Please ensure it has numeric start/end coordinates.';
+                        errorMessage.classList.remove('hidden');
+                        d3ChartArea.classList.add('flex-center');
+                        disableAllControls();
+                        return;
+                    }
+
+                    currentDataSummary = {
+                        type: 'genomicRegions',
+                        numRegions: processedData.length,
+                        firstChromosome: processedData.length > 0 ? processedData[0].chrom : 'N/A',
+                        minCoordinate: d3.min(processedData, d => d.start),
+                        maxCoordinate: d3.max(processedData, d => d.end)
+                    };
+                    
+                    renderBedTable(processedData.slice(0, 100));
+
+                    if (visualizationType === 'trackPlot') {
+                        renderBedTrackPlot(processedData);
+                    } else {
+                        d3ChartArea.innerHTML = `<p class="text-center text-gray-500">Displaying data in the table below.</p>`;
+                    }
+                
+                } else if (dataType === 'variantData') {
+                    processedData = parseVcfData(data);
+
+                    if (processedData.length === 0) {
+                        throw new Error("Could not parse valid variants from the VCF file. Please check the format.");
+                    }
+
+                    const variantCounts = countVariantTypes(processedData);
+                    currentDataSummary = {
+                        type: 'variantData',
+                        numVariants: processedData.length,
+                        numSNPs: variantCounts.snp,
+                        numInsertions: variantCounts.insertion,
+                        numDeletions: variantCounts.deletion,
+                        numOther: variantCounts.other,
+                    };
+
+                    renderVariantTable(processedData.slice(0, 100));
+                    renderVariantDistributionChart(variantCounts);
+                }
+
+                d3ChartArea.classList.remove('flex-center');
+                enableAllControls();
+
+            } catch (e) {
+                errorMessage.textContent = `Error: ${e.message}`;
                 errorMessage.classList.remove('hidden');
                 d3ChartArea.classList.add('flex-center');
-                // Disable LLM interaction
-                llmQueryInput.disabled = true;
-                askLlmButton.disabled = true;
-                llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+                disableAllControls();
+                console.error("Data processing error:", e);
                 return;
             }
-            d3ChartArea.classList.remove('flex-center'); // Remove flex centering when chart is drawn
+        }
 
-            // --- Data Aggregation for Bar Chart (Sum of values per row_bin) ---
-            const rowBinSumsMap = d3.rollup(parsedData, v => d3.sum(v, d => d.value), d => d.row_bin);
-            const rowBinSums = Array.from(rowBinSumsMap, ([row_bin, sum_value]) => ({ row_bin, sum_value }))
-                                    .sort((a, b) => d3.ascending(a.row_bin, b.row_bin)); // Sort by row_bin
+        // --- UI Update Functions ---
+        function updateGeneExpressionUI() {
+            fileInputInstructions.textContent = `Detected Gene Expression Data. Required columns: Gene Symbol, Fold Change, P-Value, and FDR.`;
+            visualizationSelect.innerHTML = `
+                <option value="barChart">Fold Change Bar Chart</option>
+                <option value="volcanoPlot">Volcano Plot</option>
+                <option value="threeDScatter">3D Scatter Plot</option>
+                <option value="heatmap">Heatmap</option>
+            `;
+            analysisSettingsSection.classList.remove('hidden');
+            geneTablesSection.classList.remove('hidden');
+            downRegulatedTableContainer.classList.remove('hidden');
+        }
 
-            // --- Top Interactions for Table ---
-            const topInteractions = parsedData.sort((a, b) => d3.descending(a.value, b.value)).slice(0, 10);
+        function updateHiCInteractionUI() {
+            fileInputInstructions.textContent = `Detected Hi-C Interaction Data. Required columns: Row Bin, Column Bin, and Interaction Value.`;
+            visualizationSelect.innerHTML = `<option value="hiCHeatmap">Interaction Heatmap</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
 
-            // Store summary for LLM context
-            const maxRowSum = d3.max(rowBinSums, d => d.sum_value);
-            const minRowSum = d3.min(rowBinSums, d => d.sum_value);
-            const maxInteractionValue = d3.max(parsedData, d => d.value);
-            const minInteractionValue = d3.min(parsedData, d => d.value);
+        function updateGenomicRegionsUI() {
+            fileInputInstructions.textContent = `Detected Genomic Regions (BED) Data.`;
+            visualizationSelect.innerHTML = `
+                <option value="trackPlot">Genomic Track Plot</option>
+                <option value="regionsTable">Regions Table</option>
+            `;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.remove('hidden');
+            downRegulatedTableContainer.classList.add('hidden');
+        }
 
-            currentDataSummary = {
-                numRowBins: rowBinSums.length,
-                maxSumInteractionPerRowBin: maxRowSum ? maxRowSum.toFixed(2) : 'N/A',
-                minSumInteractionPerRowBin: minRowSum ? minRowSum.toFixed(2) : 'N/A',
-                maxIndividualInteractionValue: maxInteractionValue ? maxInteractionValue.toFixed(2) : 'N/A',
-                minIndividualInteractionValue: minInteractionValue ? minInteractionValue.toFixed(2) : 'N/A',
-                top10Interactions: topInteractions.map(d => `(Row: ${d.row_bin}, Col: ${d.col_bin}, Value: ${d.value.toFixed(2)})`).join('; ')
-            };
+        function updateVariantDataUI() {
+            fileInputInstructions.textContent = `Detected Variant Call (VCF) Data.`;
+            visualizationSelect.innerHTML = `<option value="variantDistribution">Variant Distribution</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.remove('hidden');
+            downRegulatedTableContainer.classList.add('hidden');
+        }
 
-            // Enable LLM interaction
+
+        function disableAllControls() {
+            llmQueryInput.disabled = true;
+            askLlmButton.disabled = true;
+            visualizationSelect.disabled = true;
+            fcThresholdInput.disabled = true;
+            fdrThresholdInput.disabled = true;
+            minFcFilterInput.disabled = true;
+            maxFcFilterInput.disabled = true;
+            maxFdrFilterInput.disabled = true;
+            applyFiltersButton.disabled = true;
+        }
+
+        function enableAllControls() {
             llmQueryInput.disabled = false;
             askLlmButton.disabled = false;
-            llmResponseText.textContent = 'AI responses will appear here.'; // Reset AI response message
+            visualizationSelect.disabled = false;
+            if (currentDataType === 'geneExpression') {
+                fcThresholdInput.disabled = false;
+                fdrThresholdInput.disabled = false;
+                minFcFilterInput.disabled = false;
+                maxFcFilterInput.disabled = false;
+                maxFdrFilterInput.disabled = false;
+                applyFiltersButton.disabled = false;
+            } else {
+                fcThresholdInput.disabled = true;
+                fdrThresholdInput.disabled = true;
+                minFcFilterInput.disabled = true;
+                maxFcFilterInput.disabled = true;
+                maxFdrFilterInput.disabled = true;
+                applyFiltersButton.disabled = true;
+            }
+        }
 
-            // --- Bar Chart Rendering ---
+
+        // --- Bar Chart Rendering Function ---
+        function renderBarChart(data) {
+            // *** FIX: Dynamically calculate left margin based on the longest label to prevent overlap.
+            const longestLabelText = data.reduce((a, b) => (a.gene_symbol && b.gene_symbol && a.gene_symbol.length > b.gene_symbol.length) ? a : b, { gene_symbol: '' }).gene_symbol;
+            
+            const tempSvg = d3.select(d3ChartArea).append("svg").attr("height", 0).attr("width", 0);
+            const textElement = tempSvg.append("text").attr("class", "axis text").text(longestLabelText);
+            const labelWidth = textElement.node().getBBox().width;
+            tempSvg.remove();
+
+            const dynamicMargin = { ...margin, left: labelWidth + 25 };
+
             const containerWidth = d3ChartArea.clientWidth;
-            const chartWidth = containerWidth - margin.left - margin.right;
-            const chartHeight = Math.min(rowBinSums.length * 20 + 50, 500); // Dynamic height, max 500px
+            const chartWidth = containerWidth - dynamicMargin.left - dynamicMargin.right;
+            const barHeight = 20;
+            const dynamicChartHeight = Math.max(200, Math.min(data.length * barHeight, 600));
+
+            const svgWidth = chartWidth + dynamicMargin.left + dynamicMargin.right;
+            const svgHeight = dynamicChartHeight + dynamicMargin.top + dynamicMargin.bottom;
+
+            svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`)
+                .attr("preserveAspectRatio", "xMidYMid meet")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .append("g")
+                .attr("transform", `translate(${dynamicMargin.left},${dynamicMargin.top})`);
+
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -dynamicMargin.top / 2)
+                .attr("class", "chart-title")
+                .text("Gene Fold Change Overview");
+
+            const minFoldChange = d3.min(data, d => d.foldchange);
+            const maxFoldChange = d3.max(data, d => d.foldchange);
+
+            const xScale = d3.scaleLinear()
+                .domain([minFoldChange * 1.1, maxFoldChange * 1.1])
+                .range([0, chartWidth]);
+
+            const yScale = d3.scaleBand()
+                .domain(data.map(d => d.gene_symbol))
+                .range([0, dynamicChartHeight])
+                .padding(0.1);
+
+            // X Axis
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", `translate(0,${dynamicChartHeight})`)
+                .call(d3.axisBottom(xScale).ticks(5))
+                .append("text")
+                .attr("class", "x label text-gray-700 text-sm")
+                .attr("text-anchor", "middle")
+                .attr("x", chartWidth / 2)
+                .attr("y", margin.bottom - 10)
+                .text("Fold Change");
+
+            // Y Axis (Gene Symbols)
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale).tickSizeOuter(0))
+                .append("text")
+                .attr("class", "y label text-gray-700 text-sm")
+                .attr("text-anchor", "middle")
+                .attr("y", -dynamicMargin.left + 20)
+                .attr("x", -dynamicChartHeight / 2)
+                .attr("transform", "rotate(-90)")
+                .text("Gene Symbol");
+
+            // Add a line at Foldchange = 0
+            svg.append("line")
+                .attr("x1", xScale(0))
+                .attr("y1", 0)
+                .attr("x2", xScale(0))
+                .attr("y2", dynamicChartHeight)
+                .attr("stroke", "#a0aec0")
+                .attr("stroke-width", 1)
+                .attr("stroke-dasharray", "2 2");
+
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            svg.selectAll(".bar")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", d => `bar ${d.foldchange > 0 ? 'up-regulated' : 'down-regulated'}`)
+                .attr("x", d => xScale(Math.min(0, d.foldchange)))
+                .attr("y", d => yScale(d.gene_symbol))
+                .attr("width", d => Math.abs(xScale(d.foldchange) - xScale(0)))
+                .attr("height", yScale.bandwidth())
+                .on("mouseover", function(event, d) {
+                    d3.select(this).classed('up-regulated', d.foldchange > 0).classed('down-regulated', d.foldchange < 0);
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`Gene: ${d.gene_symbol}<br/>Fold Change: ${d.foldchange.toFixed(2)}<br/>P-Value: ${d.pvalue.toExponential(2)}<br/>FDR: ${d.fdr.toExponential(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(event, d) {
+                    d3.select(this).classed('up-regulated', d.foldchange > 0).classed('down-regulated', d.foldchange < 0);
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+        }
+
+        // --- Volcano Plot Rendering Function ---
+        function renderVolcanoPlot(data) {
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartSize = Math.min(containerWidth - margin.left - margin.right, 600); // Max size for square plot
+            const chartWidth = chartSize;
+            const chartHeight = chartSize;
 
             const svgWidth = chartWidth + margin.left + margin.right;
             const svgHeight = chartHeight + margin.top + margin.bottom;
@@ -382,28 +1102,33 @@
                 .attr("x", chartWidth / 2)
                 .attr("y", -margin.top / 2)
                 .attr("class", "chart-title")
-                .text("Total Interaction Strength per Genomic Row Bin");
+                .text("Volcano Plot (Fold Change vs. -log10(FDR))");
 
-            const xScale = d3.scaleBand()
-                .domain(rowBinSums.map(d => d.row_bin))
-                .range([0, chartWidth])
-                .padding(0.1);
+            const minFC = d3.min(data, d => d.foldchange);
+            const maxFC = d3.max(data, d => d.foldchange);
+            const maxNegLog10FDR = d3.max(data, d => d.negLog10FDR);
+
+            // Extend X domain symmetrically around 0
+            const xDomainExtent = Math.max(Math.abs(minFC), Math.abs(maxFC));
+            const xScale = d3.scaleLinear()
+                .domain([-xDomainExtent * 1.1, xDomainExtent * 1.1])
+                .range([0, chartWidth]);
 
             const yScale = d3.scaleLinear()
-                .domain([0, d3.max(rowBinSums, d => d.sum_value) * 1.05]) // 5% buffer at the top
+                .domain([0, maxNegLog10FDR * 1.1]) // Y-axis always starts from 0
                 .range([chartHeight, 0]);
 
             // X Axis
             svg.append("g")
                 .attr("class", "x axis")
                 .attr("transform", `translate(0,${chartHeight})`)
-                .call(d3.axisBottom(xScale).tickValues(xScale.domain().filter((d, i) => i % Math.ceil(rowBinSums.length / 10) === 0)))
+                .call(d3.axisBottom(xScale).ticks(5))
                 .append("text")
                 .attr("class", "x label text-gray-700 text-sm")
                 .attr("text-anchor", "middle")
                 .attr("x", chartWidth / 2)
                 .attr("y", margin.bottom - 10)
-                .text("Genomic Region (Row Bin)");
+                .text("Fold Change (log2)"); // Often log2 fold change, but using raw for now
 
             // Y Axis
             svg.append("g")
@@ -415,49 +1140,973 @@
                 .attr("y", -margin.left + 20)
                 .attr("x", -chartHeight / 2)
                 .attr("transform", "rotate(-90)")
-                .text("Total Interaction Value");
+                .text("-log10(FDR)");
 
-            // Tooltip for bars
+            // Add threshold lines
+            // Horizontal line for FDR threshold
+            const negLog10FDRThreshold = (FDR_THRESHOLD > 0) ? -Math.log10(FDR_THRESHOLD) : 0;
+            svg.append("line")
+                .attr("class", "threshold-line")
+                .attr("x1", 0)
+                .attr("y1", yScale(negLog10FDRThreshold))
+                .attr("x2", chartWidth)
+                .attr("y2", yScale(negLog10FDRThreshold));
+
+            // Vertical lines for Fold Change thresholds
+            svg.append("line")
+                .attr("class", "threshold-line")
+                .attr("x1", xScale(FOLD_CHANGE_THRESHOLD))
+                .attr("y1", 0)
+                .attr("x2", xScale(FOLD_CHANGE_THRESHOLD))
+                .attr("y2", chartHeight);
+
+            svg.append("line")
+                .attr("class", "threshold-line")
+                .attr("x1", xScale(-FOLD_CHANGE_THRESHOLD))
+                .attr("y1", 0)
+                .attr("x2", xScale(-FOLD_CHANGE_THRESHOLD))
+                .attr("y2", chartHeight);
+
+            // Add a line at Foldchange = 0 (vertical center line)
+            svg.append("line")
+                .attr("x1", xScale(0))
+                .attr("y1", 0)
+                .attr("x2", xScale(0))
+                .attr("y2", chartHeight)
+                .attr("stroke", "#a0aec0")
+                .attr("stroke-width", 1)
+                .attr("stroke-dasharray", "2 2");
+
             const tooltip = d3.select("body").append("div")
                 .attr("class", "tooltip")
                 .style("opacity", 0);
 
-            // Bars
-            svg.selectAll(".bar")
-                .data(rowBinSums)
-                .enter().append("rect")
-                .attr("class", "bar")
-                .attr("x", d => xScale(d.row_bin))
-                .attr("y", d => yScale(d.sum_value))
-                .attr("width", xScale.bandwidth())
-                .attr("height", d => chartHeight - yScale(d.sum_value))
+            // Dots for Volcano Plot
+            svg.selectAll(".dot")
+                .data(data)
+                .enter().append("circle")
+                .attr("class", d => {
+                    const isSignificant = d.fdr <= FDR_THRESHOLD;
+                    const isUp = d.foldchange >= FOLD_CHANGE_THRESHOLD;
+                    const isDown = d.foldchange <= -FOLD_CHANGE_THRESHOLD;
+
+                    if (isSignificant && isUp) return "dot significant-up";
+                    if (isSignificant && isDown) return "dot significant-down";
+                    return "dot not-significant";
+                })
+                .attr("cx", d => xScale(d.foldchange))
+                .attr("cy", d => yScale(d.negLog10FDR))
+                .attr("r", 3) // Default radius
                 .on("mouseover", function(event, d) {
-                    d3.select(this).style("fill", "#3182ce"); // Highlight on hover
+                    d3.select(this).transition().duration(100).attr("r", 5); // Enlarge on hover
                     tooltip.transition().duration(200).style("opacity", .9);
-                    tooltip.html(`Row Bin: ${d.row_bin}<br/>Total Value: ${d.sum_value.toFixed(2)}`)
+                    tooltip.html(`Gene: ${d.gene_symbol}<br/>FC: ${d.foldchange.toFixed(2)}<br/>P-Value: ${d.pvalue.toExponential(2)}<br/>FDR: ${d.fdr.toExponential(2)}`)
                         .style("left", (event.pageX + 10) + "px")
                         .style("top", (event.pageY - 28) + "px");
                 })
                 .on("mouseout", function(event, d) {
-                    d3.select(this).style("fill", "#4299e1"); // Revert color
+                    d3.select(this).transition().duration(100).attr("r", 3); // Revert size
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+        }
+
+        // --- 3D Scatter Plot specific event handlers (moved to global scope) ---
+        let INTERSECTED; // Store the currently intersected object for 3D tooltip
+        let currentSampleValueColumnName; // To store the Z-axis label for the 3D tooltip
+
+        function onMouseMove(event) {
+            if (!renderer || !camera || !threeDPoints || threeDPoints.length === 0) return;
+
+            // Calculate mouse position in normalized device coordinates (-1 to +1)
+            // Relative to the canvas element
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(threeDPoints);
+
+            if (intersects.length > 0) {
+                if (INTERSECTED != intersects[0].object) {
+                    if (INTERSECTED) INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex);
+
+                    INTERSECTED = intersects[0].object;
+                    INTERSECTED.currentHex = INTERSECTED.material.emissive.getHex();
+                    INTERSECTED.material.emissive.setHex(0x3182ce); // Hover color (darker blue)
+
+                    const geneData = INTERSECTED.userData;
+                    threeDTooltip.html(`Gene: ${geneData.gene_symbol}<br/>FC: ${geneData.foldchange.toFixed(2)}<br/>-log10(FDR): ${geneData.negLog10FDR.toFixed(2)}<br/>${currentSampleValueColumnName}: ${geneData[currentSampleValueColumnName].toFixed(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px")
+                        .transition().duration(200).style("opacity", .9);
+                }
+            } else {
+                if (INTERSECTED) INTERSECTED.material.emissive.setHex(INTERSECTED.currentHex);
+                INTERSECTED = null;
+                threeDTooltip.transition().duration(500).style("opacity", 0);
+            }
+        }
+
+        function onWindowResize() {
+            if (!renderer || !camera) return; // Ensure renderer and camera exist
+            const newChartSize = Math.min(d3ChartArea.clientWidth - 20, 600);
+            camera.aspect = newChartSize / newChartSize;
+            camera.updateProjectionMatrix();
+            renderer.setSize(newChartSize, newChartSize);
+            // The canvas element itself should ideally handle its size via CSS or be set directly once.
+            // If the canvas is directly appended, its width/height attributes need to be updated.
+            const canvas = document.getElementById('three-js-canvas');
+            if (canvas) {
+                canvas.width = newChartSize;
+                canvas.height = newChartSize;
+            }
+        }
+
+
+        // --- 3D Scatter Plot Rendering Function ---
+        function render3DScatterPlot(data, sampleValueColumnName) {
+            currentSampleValueColumnName = sampleValueColumnName; // Store for tooltip
+
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartSize = Math.min(containerWidth - 20, 600); // Max size for square canvas, minus some padding
+
+            // Create a canvas element for Three.js
+            const canvas = document.createElement('canvas');
+            canvas.id = 'three-js-canvas';
+            canvas.width = chartSize;
+            canvas.height = chartSize;
+            d3ChartArea.appendChild(canvas);
+
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f4f8); // Light blue-gray background
+
+            // Camera setup
+            camera = new THREE.PerspectiveCamera(75, chartSize / chartSize, 0.1, 1000);
+            camera.position.set(0, 0, 150); // Adjust camera position
+
+            // Renderer setup
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+            renderer.setSize(chartSize, chartSize);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // Controls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true; // Smooth camera movement
+            controls.dampingFactor = 0.25;
+            controls.screenSpacePanning = false;
+            controls.maxPolarAngle = Math.PI / 2; // Limit vertical rotation
+
+            // Axes scaling (using D3 scales for data mapping)
+            const minFC = d3.min(data, d => d.foldchange);
+            const maxFC = d3.max(data, d => d.foldchange);
+            const maxNegLog10FDR = d3.max(data, d => d.negLog10FDR);
+            const minSample = d3.min(data, d => d[sampleValueColumnName]);
+            const maxSample = d3.max(data, d => d[sampleValueColumnName]);
+
+            const scaleRange = 50; // Max extent of data in 3D space
+
+            const xScale3D = d3.scaleLinear()
+                .domain([minFC, maxFC])
+                .range([-scaleRange, scaleRange]);
+
+            const yScale3D = d3.scaleLinear()
+                .domain([0, maxNegLog10FDR])
+                .range([-scaleRange, scaleRange]);
+
+            const zScale3D = d3.scaleLinear()
+                .domain([minSample, maxSample])
+                .range([-scaleRange, scaleRange]);
+
+            // Add axes lines (simple lines for visual reference)
+            const axesMaterial = new THREE.LineBasicMaterial({ color: 0x4a5568 }); // Medium gray
+            const axisLength = scaleRange * 1.1; // Extend slightly beyond data range
+
+            // X-axis (Fold Change)
+            const xAxisGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(-axisLength, 0, 0), new THREE.Vector3(axisLength, 0, 0)]);
+            const xAxis = new THREE.Line(xAxisGeometry, axesMaterial);
+            scene.add(xAxis);
+            scene.add(renderTextSprite("Fold Change", axisLength + 10, 0, 0)); // Label X-axis
+
+            // Y-axis (-log10(FDR))
+            const yAxisGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -axisLength, 0), new THREE.Vector3(0, axisLength, 0)]);
+            const yAxis = new THREE.Line(yAxisGeometry, axesMaterial);
+            scene.add(yAxis);
+            scene.add(renderTextSprite("-log10(FDR)", 0, axisLength + 10, 0)); // Label Y-axis
+
+            // Z-axis (Sample Value)
+            const zAxisGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -axisLength), new THREE.Vector3(0, 0, axisLength)]);
+            const zAxis = new THREE.Line(zAxisGeometry, axesMaterial);
+            scene.add(zAxis);
+            scene.add(renderTextSprite(`${sampleValueColumnName} Expression`, 0, 0, axisLength + 10)); // Label Z-axis
+
+            // Create points
+            const sphereGeometry = new THREE.SphereGeometry(1.5, 16, 16); // Radius, segments
+            threeDPoints = []; // Reset points array
+
+            data.forEach(d => {
+                const isSignificant = d.fdr <= FDR_THRESHOLD;
+                const isUp = d.foldchange >= FOLD_CHANGE_THRESHOLD;
+                const isDown = d.foldchange <= -FOLD_CHANGE_THRESHOLD;
+
+                let color;
+                if (isSignificant && isUp) {
+                    color = new THREE.Color(0x4299e1); // Blue for significant up
+                } else if (isSignificant && isDown) {
+                    color = new THREE.Color(0xef4444); // Red for significant down
+                } else {
+                    color = new THREE.Color(0xa0aec0); // Gray for not significant
+                }
+
+                const material = new THREE.MeshBasicMaterial({ color: color });
+                const sphere = new THREE.Mesh(sphereGeometry, material);
+
+                sphere.position.set(
+                    xScale3D(d.foldchange),
+                    yScale3D(d.negLog10FDR),
+                    zScale3D(d[sampleValueColumnName])
+                );
+                sphere.userData = d; // Store original data for tooltip
+                scene.add(sphere);
+                threeDPoints.push(sphere);
+            });
+
+            // Raycaster for interaction (hover/click)
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            threeDTooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            // Add event listener to the canvas for mouse movement
+            renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+
+            // Animation loop
+            function animate() {
+                animationFrameId = requestAnimationFrame(animate); // Store the ID
+                controls.update(); // Only required if controls.enableDamping or controls.autoRotate are set to true
+                renderer.render(scene, camera);
+            }
+            animate();
+
+            // Handle window resize for Three.js canvas
+            window.addEventListener('resize', onWindowResize, false);
+        }
+
+        // --- Heatmap Rendering Function ---
+        function renderHeatmap(data, sampleColumns) {
+            // Filter and sort data for heatmap (e.g., top 50 most variable genes)
+            // Calculate standard deviation for each gene across sample columns
+            data.forEach(d => {
+                const sampleValues = sampleColumns.map(col => d[col]);
+                d.stdDev = d3.deviation(sampleValues);
+            });
+
+            // Sort by standard deviation (descending) and take top N
+            let heatmapData = data.filter(d => !isNaN(d.stdDev)).sort((a, b) => d3.descending(a.stdDev, b.stdDev)).slice(0, MAX_HEATMAP_GENES);
+
+            if (heatmapData.length === 0 || sampleColumns.length === 0) {
+                errorMessage.textContent = "Not enough data or sample columns to render a meaningful heatmap.";
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+
+            // --- Hierarchical Clustering for Heatmap ---
+            // 1. Prepare data for clustering (matrix of gene expression values)
+            const geneExpressionMatrix = heatmapData.map(gene => sampleColumns.map(sample => gene[sample]));
+
+            // 2. Calculate distance matrix (e.g., Euclidean distance)
+            function euclideanDistance(arr1, arr2) {
+                let sum = 0;
+                for (let i = 0; i < arr1.length; i++) {
+                    sum += Math.pow(arr1[i] - arr2[i], 2);
+                }
+                return Math.sqrt(sum);
+            }
+
+            // 3. Perform hierarchical clustering (simple average linkage)
+            // This is a simplified implementation for demonstration. For very large datasets,
+            // a dedicated clustering library would be more performant.
+            function hierarchicalClustering(matrix, labels) {
+                if (matrix.length === 0) return [];
+                let clusters = matrix.map((row, i) => ({
+                    id: i,
+                    data: row,
+                    label: labels[i],
+                    children: []
+                }));
+
+                while (clusters.length > 1) {
+                    let minDistance = Infinity;
+                    let mergeA = -1, mergeB = -1;
+
+                    for (let i = 0; i < clusters.length; i++) {
+                        for (let j = i + 1; j < clusters.length; j++) {
+                            // Calculate average distance between clusters
+                            let currentDistance = euclideanDistance(clusters[i].data, clusters[j].data);
+                            if (currentDistance < minDistance) {
+                                minDistance = currentDistance;
+                                mergeA = i;
+                                mergeB = j;
+                            }
+                        }
+                    }
+
+                    const newClusterData = clusters[mergeA].data.map((val, idx) => (val + clusters[mergeB].data[idx]) / 2);
+                    const newCluster = {
+                        id: `(${clusters[mergeA].id},${clusters[mergeB].id})`,
+                        data: newClusterData,
+                        children: [clusters[mergeA], clusters[mergeB]]
+                    };
+
+                    clusters.splice(mergeB, 1); // Remove larger index first
+                    clusters.splice(mergeA, 1);
+                    clusters.push(newCluster);
+                }
+
+                // Function to get ordered leaves from the dendrogram
+                function getLeafOrder(node) {
+                    if (node.children.length === 0) {
+                        return [node.label];
+                    }
+                    return getLeafOrder(node.children[0]).concat(getLeafOrder(node.children[1]));
+                }
+                return getLeafOrder(clusters[0]);
+            }
+
+            // Get ordered gene symbols and sample names
+            const geneLabels = heatmapData.map(d => d.gene_symbol);
+            const orderedGeneSymbols = hierarchicalClustering(geneExpressionMatrix, geneLabels);
+
+            // For sample clustering, transpose the matrix
+            const sampleExpressionMatrix = sampleColumns.map((col, i) => heatmapData.map(gene => gene[col]));
+            const orderedSampleNames = hierarchicalClustering(sampleExpressionMatrix, sampleColumns);
+
+            // Reorder heatmapData and sampleColumns based on clustering
+            heatmapData.sort((a, b) => orderedGeneSymbols.indexOf(a.gene_symbol) - orderedGeneSymbols.indexOf(b.gene_symbol));
+            sampleColumns.sort((a, b) => orderedSampleNames.indexOf(a) - orderedSampleNames.indexOf(b));
+
+
+            const containerWidth = d3ChartArea.clientWidth;
+            const cellWidth = 25; // Fixed width per cell
+            const cellHeight = 20; // Fixed height per cell
+
+            const chartWidth = sampleColumns.length * cellWidth;
+            const chartHeight = heatmapData.length * cellHeight;
+
+            const svgWidth = chartWidth + margin.left + margin.right;
+            const svgHeight = chartHeight + margin.top + margin.bottom;
+
+            svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`)
+                .attr("preserveAspectRatio", "xMidYMid meet")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -margin.top / 2)
+                .attr("class", "chart-title")
+                .text(`Heatmap of Top ${heatmapData.length} Variable Genes (Clustered)`);
+
+            // Scales for heatmap
+            const xScale = d3.scaleBand()
+                .domain(sampleColumns)
+                .range([0, chartWidth])
+                .paddingInner(0);
+
+            const yScale = d3.scaleBand()
+                .domain(heatmapData.map(d => d.gene_symbol))
+                .range([0, chartHeight])
+                .paddingInner(0);
+
+            const allExpressionValues = heatmapData.flatMap(d => sampleColumns.map(col => d[col]));
+            const minExpression = d3.min(allExpressionValues);
+            const maxExpression = d3.max(allExpressionValues);
+
+            const colorScale = d3.scaleSequential(d3.interpolateViridis)
+                .domain([minExpression, maxExpression]);
+
+            // X Axis (Samples)
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(xScale))
+                .selectAll("text")
+                .attr("transform", "rotate(-45)")
+                .style("text-anchor", "end");
+
+            // Y Axis (Genes)
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale));
+
+            // Heatmap cells
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            // Prepare data for cells (flattened array)
+            const cellsData = [];
+            heatmapData.forEach(gene => {
+                sampleColumns.forEach(sample => {
+                    cellsData.push({
+                        gene_symbol: gene.gene_symbol,
+                        sample: sample,
+                        value: gene[sample]
+                    });
+                });
+            });
+
+            svg.selectAll(".heatmap-cell")
+                .data(cellsData)
+                .enter().append("rect")
+                .attr("class", "heatmap-cell")
+                .attr("x", d => xScale(d.sample))
+                .attr("y", d => yScale(d.gene_symbol))
+                .attr("width", xScale.bandwidth())
+                .attr("height", yScale.bandwidth())
+                .style("fill", d => colorScale(d.value))
+                .on("mouseover", function(event, d) {
+                    d3.select(this).style("stroke", "#fff").style("stroke-width", "1px");
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`Gene: ${d.gene_symbol}<br/>Sample: ${d.sample}<br/>Value: ${d.value.toFixed(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(event, d) {
+                    d3.select(this).style("stroke", "#f0f4f8").style("stroke-width", "0.1px");
                     tooltip.transition().duration(500).style("opacity", 0);
                 });
 
-            // --- Top Interactions Table Rendering ---
-            if (topInteractions.length > 0) {
-                topInteractionsTableContainer.classList.remove('hidden');
-                topInteractions.forEach((d, i) => {
-                    const row = topInteractionsTableBody.insertRow();
+            // Add a color legend for the heatmap
+            const legendHeight = Math.min(chartHeight, 200);
+            const legendWidth = 20;
+            const legendPadding = 20;
+
+            const colorLegend = svg.append("g")
+                .attr("class", "color-legend")
+                .attr("transform", `translate(${chartWidth + legendPadding}, ${chartHeight - legendHeight})`);
+
+            const defs = svg.append("defs");
+            const linearGradient = defs.append("linearGradient")
+                .attr("id", "heatmap-gradient")
+                .attr("x1", "0%")
+                .attr("y1", "100%")
+                .attr("x2", "0%")
+                .attr("y2", "0%");
+
+            linearGradient.selectAll("stop")
+                .data(colorScale.ticks(5).map(t => {
+                    const normalizedValue = (t - minExpression) / (maxExpression - minExpression);
+                    return {
+                        offset: normalizedValue * 100 + "%",
+                        color: colorScale(t)
+                    };
+                }))
+                .enter().append("stop")
+                .attr("offset", d => d.offset)
+                .attr("stop-color", d => d.color);
+
+            colorLegend.append("rect")
+                .attr("width", legendWidth)
+                .attr("height", legendHeight)
+                .style("fill", "url(#heatmap-gradient)")
+                .attr("rx", 5)
+                .attr("ry", 5);
+
+            const legendAxisScale = d3.scaleLinear()
+                .domain([minExpression, maxExpression])
+                .range([legendHeight, 0]);
+
+            colorLegend.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(${legendWidth}, 0)`)
+                .call(d3.axisRight(legendAxisScale).ticks(5));
+
+            colorLegend.append("text")
+                .attr("class", "legend-title text-gray-700 text-sm")
+                .attr("x", legendWidth / 2)
+                .attr("y", -10)
+                .attr("text-anchor", "middle")
+                .text("Expression");
+        }
+
+        // --- Hi-C Heatmap Rendering Function ---
+        function renderHiCHeatmap(data) {
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartSize = Math.min(containerWidth - margin.left - margin.right, 600); // Fixed size for the square heatmap
+            const chartWidth = chartSize;
+            const chartHeight = chartSize;
+
+            const svgWidth = chartWidth + margin.left + margin.right;
+            const svgHeight = chartHeight + margin.top + margin.bottom;
+
+            svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`) // Use fixed chartSize for viewbox
+                .attr("preserveAspectRatio", "xMidYMid meet")
+                .attr("width", "100%") // Make it responsive
+                .attr("height", "auto") // Make it responsive
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -margin.top / 2)
+                .attr("class", "chart-title")
+                .text("Hi-C Interaction Heatmap");
+
+            // Get unique row and column bins
+            const rowBins = Array.from(new Set(data.map(d => d.row_bin))).sort(d3.ascending);
+            const colBins = Array.from(new Set(data.map(d => d.col_bin))).sort(d3.ascending);
+
+            // Scales for bins
+            const xScale = d3.scaleBand()
+                .domain(colBins)
+                .range([0, chartWidth])
+                .paddingInner(0); // No padding between heatmap cells
+
+            const yScale = d3.scaleBand()
+                .domain(rowBins)
+                .range([0, chartHeight])
+                .paddingInner(0); // No padding between heatmap cells
+
+            // Color scale for interaction values
+            const colorScale = d3.scaleSequential(d3.interpolateYlOrRd) // Use a sequential color scheme suitable for intensity
+                .domain(d3.extent(data, d => d.value)); // Max and min value for color range
+
+            // Axes
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(xScale).tickValues(xScale.domain().filter((d, i) => i % Math.ceil(colBins.length / 10) === 0))); // Show fewer ticks for readability
+
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale).tickValues(yScale.domain().filter((d, i) => i % Math.ceil(rowBins.length / 10) === 0))); // Show fewer ticks for readability
+
+            // Axis labels
+            svg.append("text")
+                .attr("class", "x label text-gray-700 text-sm")
+                .attr("text-anchor", "middle")
+                .attr("x", chartWidth / 2)
+                .attr("y", chartHeight + margin.bottom - 10)
+                .text("Genomic Region (Column Bin)");
+
+            svg.append("text")
+                .attr("class", "y label text-gray-700 text-sm")
+                .attr("text-anchor", "middle")
+                .attr("y", -margin.left + 20)
+                .attr("x", -chartHeight / 2)
+                .attr("transform", "rotate(-90)")
+                .text("Genomic Region (Row Bin)");
+
+            // Tooltip
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            // Heatmap cells
+            svg.selectAll(".heatmap-cell")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", "heatmap-cell")
+                .attr("x", d => xScale(d.col_bin))
+                .attr("y", d => yScale(d.row_bin))
+                .attr("width", xScale.bandwidth())
+                .attr("height", yScale.bandwidth())
+                .style("fill", d => colorScale(d.value))
+                .on("mouseover", function(event, d) {
+                    d3.select(this).style("stroke", "#fff").style("stroke-width", "1px"); // Highlight on hover
+                    tooltip.transition().duration(200)
+                        .style("opacity", .9);
+                    tooltip.html(`Row: ${d.row_bin}<br/>Col: ${d.col_bin}<br/>Value: ${d.value.toFixed(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(event, d) {
+                    d3.select(this).style("stroke", "#f0f4f8").style("stroke-width", "0.1px"); // Revert on mouseout
+                    tooltip.transition().duration(500)
+                        .style("opacity", 0);
+                });
+
+            // Add a color legend
+            const legendHeight = Math.min(chartHeight, 200);
+            const legendWidth = 20;
+            const legendPadding = 20;
+
+            const colorLegend = svg.append("g")
+                .attr("class", "color-legend")
+                .attr("transform", `translate(${chartWidth + legendPadding}, ${chartHeight - legendHeight})`);
+
+            const defs = svg.append("defs");
+            const linearGradient = defs.append("linearGradient")
+                .attr("id", "hic-heatmap-gradient")
+                .attr("x1", "0%")
+                .attr("y1", "100%")
+                .attr("x2", "0%")
+                .attr("y2", "0%");
+
+            linearGradient.selectAll("stop")
+                .data(colorScale.ticks(5).map(t => {
+                    const normalizedValue = (t - colorScale.domain()[0]) / (colorScale.domain()[1] - colorScale.domain()[0]);
+                    return {
+                        offset: normalizedValue * 100 + "%",
+                        color: colorScale(t)
+                    };
+                }))
+                .enter().append("stop")
+                .attr("offset", d => d.offset)
+                .attr("stop-color", d => d.color);
+
+            colorLegend.append("rect")
+                .attr("width", legendWidth)
+                .attr("height", legendHeight)
+                .style("fill", "url(#hic-heatmap-gradient)")
+                .attr("rx", 5)
+                .attr("ry", 5);
+
+            const legendAxisScale = d3.scaleLinear()
+                .domain(colorScale.domain())
+                .range([legendHeight, 0]);
+
+            colorLegend.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(${legendWidth}, 0)`)
+                .call(d3.axisRight(legendAxisScale).ticks(5));
+
+            colorLegend.append("text")
+                .attr("class", "legend-title text-gray-700 text-sm")
+                .attr("x", legendWidth / 2)
+                .attr("y", -10)
+                .attr("text-anchor", "middle")
+                .text("Interaction Value");
+        }
+
+        // --- Gene Tables Rendering Function ---
+        function renderGeneTables(top10UpRegulated, top10DownRegulated) {
+            // Re-create the inner HTML for gene tables
+            upRegulatedTableContainer.innerHTML = `
+                <h3>Top 10 Up-regulated Genes</h3>
+                <table class="gene-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Gene Symbol</th>
+                            <th>Foldchange</th>
+                            <th>PValue</th>
+                            <th>FDR</th>
+                        </tr>
+                    </thead>
+                    <tbody id="upRegulatedTableBody"></tbody>
+                </table>
+                <p class="no-genes-message hidden" id="noUpRegulatedGenesMessage">No up-regulated genes to display.</p>
+            `;
+            downRegulatedTableContainer.innerHTML = `
+                <h3>Top 10 Down-regulated Genes</h3>
+                <table class="gene-table">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Gene Symbol</th>
+                            <th>Foldchange</th>
+                            <th>PValue</th>
+                            <th>FDR</th>
+                        </tr>
+                    </thead>
+                    <tbody id="downRegulatedTableBody"></tbody>
+                </table>
+                <p class="no-genes-message hidden" id="noDownRegulatedGenesMessage">No down-regulated genes to display.</p>
+            `;
+
+            // Get references to the newly created tbody elements
+            const upRegulatedTableBody = document.getElementById('upRegulatedTableBody');
+            const downRegulatedTableBody = document.getElementById('downRegulatedTableBody');
+            const noUpRegulatedGenesMessage = document.getElementById('noUpRegulatedGenesMessage');
+            const noDownRegulatedGenesMessage = document.getElementById('noDownRegulatedGenesMessage');
+
+
+            geneTablesSection.classList.remove('hidden');
+
+            // Up-regulated Genes Table
+            if (top10UpRegulated.length > 0) {
+                noUpRegulatedGenesMessage.classList.add('hidden');
+                top10UpRegulated.forEach((d, i) => {
+                    const row = upRegulatedTableBody.insertRow();
                     row.insertCell().textContent = i + 1; // Rank
-                    row.insertCell().textContent = d.row_bin;
-                    row.insertCell().textContent = d.col_bin;
-                    row.insertCell().textContent = d.value.toFixed(2);
+                    row.insertCell().textContent = d.gene_symbol;
+                    row.insertCell().textContent = d.foldchange.toFixed(2);
+                    row.insertCell().textContent = d.pvalue.toExponential(2); // Scientific notation for p-value
+                    row.insertCell().textContent = d.fdr.toExponential(2); // Scientific notation for FDR
                 });
             } else {
-                noTopInteractionsMessage.classList.remove('hidden');
-                topInteractionsTableContainer.classList.remove('hidden'); // Show container even if empty to show message
+                noUpRegulatedGenesMessage.classList.remove('hidden');
+            }
+
+            // Down-regulated Genes Table
+            if (top10DownRegulated.length > 0) {
+                 noDownRegulatedGenesMessage.classList.add('hidden');
+                top10DownRegulated.forEach((d, i) => {
+                    const row = downRegulatedTableBody.insertRow();
+                    row.insertCell().textContent = i + 1; // Rank
+                    row.insertCell().textContent = d.gene_symbol;
+                    row.insertCell().textContent = d.foldchange.toFixed(2);
+                    row.insertCell().textContent = d.pvalue.toExponential(2);
+                    row.insertCell().textContent = d.fdr.toExponential(2);
+                });
+            } else {
+                noDownRegulatedGenesMessage.classList.remove('hidden');
+            }
+            downRegulatedTableContainer.classList.remove('hidden'); // Ensure it's visible if there's content or message
+        }
+
+        // --- BED Table Rendering Function ---
+        function renderBedTable(data) {
+            upRegulatedTableContainer.innerHTML = `
+                <h3>Genomic Regions (First 100)</h3>
+                <table class="gene-table">
+                    <thead>
+                        <tr>
+                            <th>Chrom</th>
+                            <th>Start</th>
+                            <th>End</th>
+                            <th>Name</th>
+                            <th>Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="bedTableBody"></tbody>
+                </table>
+                <p class="no-genes-message hidden" id="noBedRegionsMessage">No genomic regions to display.</p>
+            `;
+            downRegulatedTableContainer.innerHTML = ''; // Ensure the second container is empty
+
+            const bedTableBody = document.getElementById('bedTableBody');
+            const noBedRegionsMessage = document.getElementById('noBedRegionsMessage');
+
+            geneTablesSection.classList.remove('hidden'); // Ensure section is visible
+            upRegulatedTableContainer.classList.remove('hidden');
+            downRegulatedTableContainer.classList.add('hidden'); // Hide the second table container
+
+            if (data.length > 0) {
+                noBedRegionsMessage.classList.add('hidden');
+                data.forEach(d => {
+                    const row = bedTableBody.insertRow();
+                    row.insertCell().textContent = d.chrom;
+                    row.insertCell().textContent = d.start;
+                    row.insertCell().textContent = d.end;
+                    row.insertCell().textContent = d.name || 'N/A';
+                    row.insertCell().textContent = d.score.toFixed(2);
+                });
+            } else {
+                noBedRegionsMessage.classList.remove('hidden');
             }
         }
+
+        // --- BED Track Plot Rendering Function (New!) ---
+        function renderBedTrackPlot(data) {
+            d3ChartArea.innerHTML = ''; // Clear the area first
+
+            const groupedData = d3.group(data, d => d.chrom);
+
+            const containerWidth = d3ChartArea.clientWidth;
+            const trackHeight = 40;
+            const trackMargin = { top: 30, right: 30, bottom: 40, left: 80 };
+
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            const svgContainer = d3.select(d3ChartArea).append("div")
+                .style("width", "100%");
+
+            svgContainer.append("h2")
+                .attr("class", "chart-title")
+                .text("Genomic Regions Track Plot");
+
+            groupedData.forEach((regions, chrom) => {
+                const chromContainer = svgContainer.append("div").attr("class", "mb-4");
+
+                const minCoord = d3.min(regions, d => d.start);
+                const maxCoord = d3.max(regions, d => d.end);
+
+                const chartWidth = containerWidth - trackMargin.left - trackMargin.right;
+                
+                const svg = chromContainer.append("svg")
+                    .attr("width", containerWidth)
+                    .attr("height", trackHeight + trackMargin.top + trackMargin.bottom)
+                    .append("g")
+                    .attr("transform", `translate(${trackMargin.left},${trackMargin.top})`);
+
+                svg.append("text")
+                    .attr("x", -10)
+                    .attr("y", trackHeight / 2)
+                    .attr("dy", "0.35em")
+                    .attr("text-anchor", "end")
+                    .attr("class", "font-bold text-gray-700")
+                    .text(chrom);
+
+                const xScale = d3.scaleLinear()
+                    .domain([minCoord, maxCoord])
+                    .range([0, chartWidth]);
+
+                svg.append("line")
+                    .attr("x1", 0)
+                    .attr("x2", chartWidth)
+                    .attr("y1", trackHeight / 2)
+                    .attr("y2", trackHeight / 2)
+                    .attr("stroke", "#a0aec0");
+
+                svg.selectAll(".bed-feature")
+                    .data(regions)
+                    .enter()
+                    .append("rect")
+                    .attr("class", "bed-feature")
+                    .attr("x", d => xScale(d.start))
+                    .attr("y", 0)
+                    .attr("width", d => Math.max(1, xScale(d.end) - xScale(d.start)))
+                    .attr("height", trackHeight)
+                    .on("mouseover", function(event, d) {
+                        d3.select(this).style("fill", "#3182ce");
+                        tooltip.transition().duration(200).style("opacity", .9);
+                        tooltip.html(`Region: ${d.name || 'N/A'}<br/>
+                                     Coords: ${d.chrom}:${d.start.toLocaleString()}-${d.end.toLocaleString()}<br/>
+                                     Score: ${d.score.toFixed(2)}`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", function(d) {
+                        d3.select(this).style("fill", "");
+                        tooltip.transition().duration(500).style("opacity", 0);
+                    });
+
+                const xAxis = d3.axisBottom(xScale)
+                    .ticks(Math.max(2, Math.floor(chartWidth / 100)))
+                    .tickFormat(d3.format(".2s"));
+
+                svg.append("g")
+                    .attr("class", "x axis")
+                    .attr("transform", `translate(0,${trackHeight})`)
+                    .call(xAxis);
+            });
+        }
+
+
+        // --- Variant Table Rendering Function (New!) ---
+        function renderVariantTable(data) {
+            upRegulatedTableContainer.innerHTML = `
+                <h3>Genomic Variants (First 100)</h3>
+                <table class="gene-table">
+                    <thead>
+                        <tr>
+                            <th>Chrom</th>
+                            <th>Position</th>
+                            <th>ID</th>
+                            <th>REF</th>
+                            <th>ALT</th>
+                            <th>Quality</th>
+                        </tr>
+                    </thead>
+                    <tbody id="variantTableBody"></tbody>
+                </table>
+                 <p class="no-genes-message hidden" id="noVariantsMessage">No variants to display.</p>
+            `;
+            downRegulatedTableContainer.innerHTML = ''; // Clear the second table
+            downRegulatedTableContainer.classList.add('hidden');
+
+            const variantTableBody = document.getElementById('variantTableBody');
+            const noVariantsMessage = document.getElementById('noVariantsMessage');
+
+            if (data.length > 0) {
+                noVariantsMessage.classList.add('hidden');
+                data.forEach(d => {
+                    const row = variantTableBody.insertRow();
+                    row.insertCell().textContent = d.chrom;
+                    row.insertCell().textContent = d.pos;
+                    row.insertCell().textContent = d.id;
+                    row.insertCell().textContent = d.ref;
+                    row.insertCell().textContent = d.alt;
+                    row.insertCell().textContent = d.qual.toFixed(0);
+                });
+            } else {
+                noVariantsMessage.classList.remove('hidden');
+            }
+        }
+
+        // --- Variant Distribution Chart Rendering Function (New!) ---
+        function renderVariantDistributionChart(variantCounts) {
+            const data = [
+                { type: 'SNP', count: variantCounts.snp },
+                { type: 'Insertion', count: variantCounts.insertion },
+                { type: 'Deletion', count: variantCounts.deletion },
+                { type: 'Other', count: variantCounts.other }
+            ];
+
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartWidth = containerWidth - margin.left - margin.right;
+            const chartHeight = 300 - margin.top - margin.bottom; // Fixed height for this chart
+
+            const svgWidth = chartWidth + margin.left + margin.right;
+            const svgHeight = chartHeight + margin.top + margin.bottom;
+
+            svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${svgWidth} ${svgHeight}`)
+                .attr("preserveAspectRatio", "xMidYMid meet")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -margin.top / 2)
+                .attr("class", "chart-title")
+                .text("Variant Type Distribution");
+
+            const xScale = d3.scaleBand()
+                .domain(data.map(d => d.type))
+                .range([0, chartWidth])
+                .padding(0.4);
+
+            const yScale = d3.scaleLinear()
+                .domain([0, d3.max(data, d => d.count) * 1.1])
+                .range([chartHeight, 0]);
+
+            // X Axis
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(xScale));
+
+            // Y Axis
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale).ticks(5));
+
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            svg.selectAll(".bar")
+                .data(data)
+                .enter().append("rect")
+                .attr("class", "bar up-regulated") // Use same styling for simplicity
+                .attr("x", d => xScale(d.type))
+                .attr("y", d => yScale(d.count))
+                .attr("width", xScale.bandwidth())
+                .attr("height", d => chartHeight - yScale(d.count))
+                .on("mouseover", function(event, d) {
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`Type: ${d.type}<br/>Count: ${d.count.toLocaleString()}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(d) {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+        }
+
 
         // Function to call LLM API
         async function callLlmApi(prompt, dataSummary) {
@@ -467,12 +2116,41 @@
 
             try {
                 let chatHistory = [];
-                // Provide LLM with context about the bar chart and top interactions table
-                let contextPrompt = `You are an AI assistant specialized in interpreting genomic interaction data. The current data is summarized as follows:\n\n`;
-                contextPrompt += `- **Bar Chart:** Shows the total interaction strength for ${dataSummary.numRowBins} genomic row bins. The total interaction values per row bin range from ${dataSummary.minSumInteractionPerRowBin} to ${dataSummary.maxSumInteractionPerRowBin}.\n`;
-                contextPrompt += `- **Top 10 Interactions Table:** Lists the individual interactions with the highest strength. The overall individual interaction values in the dataset range from ${dataSummary.minIndividualInteractionValue} to ${dataSummary.maxIndividualInteractionValue}.\n`;
-                contextPrompt += `The top 10 strongest individual interactions are: ${dataSummary.top10Interactions}.\n\n`;
-                contextPrompt += `Based on this summary and general knowledge about genomic interactions, please answer the user's question.`;
+                let contextPrompt = `You are an AI assistant specialized in interpreting genomic data. `;
+
+                if (dataSummary.type === 'geneExpression') {
+                    contextPrompt += `The current dataset contains ${dataSummary.numGenes} genes.\n`;
+                    contextPrompt += `The fold change values range from ${dataSummary.minFoldChange} (down-regulated) to ${dataSummary.maxFoldChange} (up-regulated).\n`;
+                    contextPrompt += `Based on a Fold Change threshold of |${dataSummary.foldChangeThreshold}| and an FDR threshold of ${dataSummary.fdrThreshold}:\n`;
+                    contextPrompt += `- There are ${dataSummary.numSignificantUpRegulated} significantly up-regulated genes.\n`;
+                    contextPrompt += `- There are ${dataSummary.numSignificantDownRegulated} significantly down-regulated genes.\n`;
+                    if (dataSummary.sampleValueColumn) {
+                        contextPrompt += `The 3D scatter plot uses '${dataSummary.sampleValueColumn}' as the Z-axis, with values ranging from ${dataSummary.minSampleValue} to ${dataSummary.maxSampleValue}.\n`;
+                    }
+                    if (dataSummary.numSampleColumns) {
+                        contextPrompt += `The heatmap visualizes expression for ${dataSummary.heatmapGenesCount} most variable genes across ${dataSummary.numSampleColumns} samples, with expression values ranging from ${dataSummary.minHeatmapValue} to ${dataSummary.maxHeatmapValue}.\n`;
+                    }
+                    contextPrompt += `The top 10 up-regulated genes by fold change are: ${dataSummary.top10UpRegulated}.\n`;
+                    contextPrompt += `The top 10 down-regulated genes by fold change are: ${dataSummary.top10DownRegulated}.\n\n`;
+                    contextPrompt += `The user is viewing either a Fold Change Bar Chart, a Volcano Plot, a 3D Scatter Plot, or a Heatmap of gene expression data. Please interpret the data and answer the user's question.`;
+                } else if (dataSummary.type === 'hiCInteraction') {
+                    contextPrompt += `The current dataset contains Hi-C interaction data with ${dataSummary.numInteractions} interactions across ${dataSummary.numRowBins} x ${dataSummary.numColBins} genomic bins.\n`;
+                    contextPrompt += `Interaction values range from ${dataSummary.minInteractionValue} to ${dataSummary.maxInteractionValue}.\n\n`;
+                    contextPrompt += `The user is viewing an Interaction Heatmap of Hi-C data. Please interpret the chromatin interaction patterns and answer the user's question.`;
+                } else if (dataSummary.type === 'genomicRegions') {
+                    contextPrompt += `The current dataset contains genomic regions data with ${dataSummary.numRegions} regions from a BED file.\n`;
+                    if (dataSummary.numRegions > 0) {
+                        contextPrompt += `The regions are on chromosome ${dataSummary.firstChromosome} and span coordinates from ${dataSummary.minCoordinate} to ${dataSummary.maxCoordinate}.\n\n`;
+                    } else {
+                        contextPrompt += `No regions were found in the file.\n\n`;
+                    }
+                    contextPrompt += `The user is viewing a table of these regions and/or a genomic track plot. Please interpret the regions and answer the user's question.`;
+                } else if (dataSummary.type === 'variantData') {
+                    contextPrompt += `The current dataset contains ${dataSummary.numVariants} genomic variants from a VCF file.\n`;
+                    contextPrompt += `The variant distribution is: ${dataSummary.numSNPs} SNPs, ${dataSummary.numInsertions} insertions, ${dataSummary.numDeletions} deletions, and ${dataSummary.numOther} other complex variants.\n\n`;
+                    contextPrompt += `The user is viewing a bar chart of this distribution and a table of the first 100 variants. Please interpret the data and answer the user's question.`;
+                }
+
 
                 chatHistory.push({ role: "user", parts: [{ text: contextPrompt + "\n\nUser's question: " + prompt }] });
 
@@ -488,7 +2166,6 @@
                 });
 
                 const result = await response.json();
-
                 if (result.candidates && result.candidates.length > 0 &&
                     result.candidates[0].content && result.candidates[0].content.parts &&
                     result.candidates[0].content.parts.length > 0) {
@@ -500,7 +2177,7 @@
                 }
             } catch (error) {
                 llmErrorMessage.textContent = `Error communicating with AI: ${error.message}. Please check your network or try again later.`;
-                llmErrorMessage.classList.remove('hidden');
+                    llmErrorMessage.classList.remove('hidden');
                 console.error("Error calling LLM API:", error);
             } finally {
                 llmLoadingIndicator.classList.add('hidden');
@@ -512,51 +2189,95 @@
             const file = event.target.files[0];
             if (!file) {
                 clearVisualization();
-                // Restore initial message
-                loadingMessage.textContent = 'Upload a CSV file to see the data summary here.';
+                loadingMessage.textContent = `Upload a file to see the data summary here.`;
                 loadingMessage.classList.remove('hidden');
                 d3ChartArea.classList.add('flex-center');
-                // Disable LLM interaction
-                llmQueryInput.disabled = true;
-                askLlmButton.disabled = true;
-                llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+                disableAllControls();
                 return;
             }
 
-            clearVisualization(); // Clear any existing chart or error messages
-            loadingMessage.textContent = 'Loading data...';
+            clearVisualization(); 
+            loadingMessage.textContent = 'Analyzing file...';
             loadingMessage.classList.remove('hidden');
-            d3ChartArea.classList.add('flex-center'); // Ensure loading message is centered
+            d3ChartArea.classList.add('flex-center');
+            disableAllControls(); 
 
             const reader = new FileReader();
 
             reader.onload = (e) => {
                 const fileContent = e.target.result;
+                const fileName = file.name;
+                const fileExtension = fileName.split('.').pop().toLowerCase();
+
+                // --- AUTO-DETECTION LOGIC ---
+                let detectedDataType = null;
+
+                if (fileExtension === 'vcf') {
+                    detectedDataType = 'variantData';
+                } else if (fileExtension === 'bed') {
+                    detectedDataType = 'genomicRegions';
+                } else if (fileExtension === 'csv') {
+                    const headers = fileContent.split('\n')[0].split(/,|\t/).map(h => h.trim());
+                    const hiCCols = findColumnNames(headers, ['rowBin', 'colBin', 'interactionValue']);
+                    const geneExpCols = findColumnNames(headers, ['geneSymbol', 'foldChange', 'fdr']);
+
+                    if (hiCCols.rowBin && hiCCols.colBin && hiCCols.interactionValue) {
+                        detectedDataType = 'hiCInteraction';
+                    } else if (geneExpCols.geneSymbol && geneExpCols.foldChange && geneExpCols.fdr) {
+                        detectedDataType = 'geneExpression';
+                    } else {
+                         errorMessage.textContent = 'Could not determine CSV type. Please ensure headers match Gene Expression or Hi-C formats.';
+                         errorMessage.classList.remove('hidden');
+                         loadingMessage.classList.add('hidden');
+                         return;
+                    }
+                }
+
+                if (!detectedDataType) {
+                    errorMessage.textContent = 'Unsupported file type. Please upload a .csv, .bed, or .vcf file.';
+                    errorMessage.classList.remove('hidden');
+                    loadingMessage.classList.add('hidden');
+                    return;
+                }
+
+                currentDataType = detectedDataType;
+
+                // Update UI based on detected type
+                if (currentDataType === 'geneExpression') updateGeneExpressionUI();
+                else if (currentDataType === 'hiCInteraction') updateHiCInteractionUI();
+                else if (currentDataType === 'genomicRegions') updateGenomicRegionsUI();
+                else if (currentDataType === 'variantData') updateVariantDataUI();
+                
+                visualizationOptionsSection.classList.remove('hidden');
+                loadingMessage.textContent = 'Loading data...';
+
+                // --- PARSING LOGIC ---
+                let dataToParse = fileContent;
+                if (fileExtension === 'vcf') {
+                    const lines = fileContent.split('\n');
+                    const dataLines = lines.filter(line => !line.startsWith('##'));
+                    dataToParse = dataLines.join('\n');
+                }
+                
+                const parser = (fileExtension === 'csv') ? d3.csv : d3.tsv;
+
                 try {
-                    d3.csv(URL.createObjectURL(new Blob([fileContent], {type: 'text/csv'})), d3.autoType).then(data => {
-                        currentData = data; // Store the data
-                        renderVisualization(currentData);
+                     parser(URL.createObjectURL(new Blob([dataToParse], {type: 'text/plain'})), d3.autoType).then(data => {
+                        rawDataFromFile = data;
+                        renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
                         loadingMessage.classList.add('hidden');
                     }).catch(error => {
-                        errorMessage.textContent = `Error parsing CSV: ${error.message}. Please check console for details.`;
+                        errorMessage.textContent = `Error parsing file: ${error.message}. Please check file format and console for details.`;
                         errorMessage.classList.remove('hidden');
                         loadingMessage.classList.add('hidden');
-                        d3ChartArea.classList.add('flex-center');
-                        // Disable LLM interaction on error
-                        llmQueryInput.disabled = true;
-                        askLlmButton.disabled = true;
-                        llmResponseText.textContent = 'Error loading data. AI interaction disabled.';
-                        console.error("Error parsing CSV:", error);
+                        disableAllControls();
+                        console.error("Error parsing file:", error);
                     });
                 } catch (error) {
                     errorMessage.textContent = `Error reading file: ${error.message}`;
                     errorMessage.classList.remove('hidden');
                     loadingMessage.classList.add('hidden');
-                    d3ChartArea.classList.add('flex-center');
-                    // Disable LLM interaction on error
-                    llmQueryInput.disabled = true;
-                    askLlmButton.disabled = true;
-                    llmResponseText.textContent = 'Error reading file. AI interaction disabled.';
+                    disableAllControls();
                     console.error("Error reading file:", error);
                 }
             };
@@ -565,55 +2286,67 @@
                 errorMessage.textContent = 'Failed to read file.';
                 errorMessage.classList.remove('hidden');
                 loadingMessage.classList.add('hidden');
-                d3ChartArea.classList.add('flex-center');
-                // Disable LLM interaction on error
-                llmQueryInput.disabled = true;
-                askLlmButton.disabled = true;
-                llmResponseText.textContent = 'Error reading file. AI interaction disabled.';
+                disableAllControls();
             };
 
             reader.readAsText(file);
         });
 
+        // Event listener for visualization dropdown change
+        visualizationSelect.addEventListener('change', () => {
+            if (rawDataFromFile.length > 0) {
+                renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
+            }
+        });
+
+        // Event listener for Apply Filters button click (only for gene expression)
+        applyFiltersButton.addEventListener('click', () => {
+            if (currentDataType === 'geneExpression' && rawDataFromFile.length > 0) {
+                renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
+            } else if (currentDataType === 'geneExpression') {
+                errorMessage.textContent = 'Please upload a CSV file before applying filters.';
+                errorMessage.classList.remove('hidden');
+            }
+        });
+
+
         // Event listener for LLM button click
         askLlmButton.addEventListener('click', () => {
             const query = llmQueryInput.value.trim();
-            if (query && currentData.length > 0 && currentDataSummary) {
+            if (query && processedData.length > 0 && currentDataSummary) {
                 callLlmApi(query, currentDataSummary);
             } else if (!query) {
                 llmErrorMessage.textContent = 'Please enter a question for the AI.';
                 llmErrorMessage.classList.remove('hidden');
             } else {
-                llmErrorMessage.textContent = 'Please upload genomic data first to enable AI interaction.';
+                llmErrorMessage.textContent = 'Please upload data and ensure it is processed to enable AI interaction.';
                 llmErrorMessage.classList.remove('hidden');
             }
         });
 
-        // Resize Observer to re-render the chart when its container changes size
-        const resizeObserver = new ResizeObserver(entries => {
-            for (let entry of entries) {
-                // Check if the observed element is the d3ChartArea and if there is data loaded
-                if (entry.target === d3ChartArea && currentData.length > 0) {
-                    renderVisualization(currentData); // Re-render the chart with the current data
+        // *** FIX: Debounce the resize handler to prevent infinite loops.
+        let resizeTimer;
+        const debouncedResizeHandler = () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (rawDataFromFile.length > 0) {
+                    // Temporarily disconnect the observer to prevent the handler from re-triggering itself
+                    resizeObserver.disconnect(); 
+                    renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
+                    // Re-connect the observer after the rendering is complete
+                    resizeObserver.observe(d3ChartArea);
                 }
-            }
-        });
+            }, 250); // Wait 250ms after the last resize event before re-rendering
+        };
+
+        const resizeObserver = new ResizeObserver(debouncedResizeHandler);
 
         // Initial setup when the page loads
         document.addEventListener('DOMContentLoaded', () => {
-            // Observe the d3ChartArea for size changes
             resizeObserver.observe(d3ChartArea);
-
-            // Set initial message (already in HTML, just ensure visibility)
             loadingMessage.classList.remove('hidden');
             d3ChartArea.classList.add('flex-center');
-
-            // Initially disable LLM input and button, and set default response text
-            llmQueryInput.disabled = true;
-            askLlmButton.disabled = true;
-            llmResponseText.textContent = 'Upload genomic data to enable AI interaction.';
+            disableAllControls();
+            llmResponseText.textContent = 'Upload data to enable AI interaction.';
         });
-    </script>
-</body>
-</html>
-
+    </script></body></html>
