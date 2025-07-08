@@ -4,6 +4,10 @@
     <title>Genomic Data Analyzer with D3.js & Three.js</title>
     <!-- Tailwind CSS for basic styling across the whole site -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Pileup.js CSS -->
+    <link rel="stylesheet" href="https://www.pileup.com/dist/pileup.css">
+    <!-- HiGlass CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/higlass@1.11.2/dist/hglib.css">
     <style>
         /* Global body styles for the website */
         body {
@@ -153,6 +157,21 @@
             stroke: #fff; /* Highlight on hover */
             stroke-width: 1px;
         }
+        
+        /* Circos Plot Specific Styles */
+        .circos-chromosome {
+            stroke: #666;
+            stroke-width: 1px;
+        }
+        .circos-ribbon {
+            fill-opacity: 0.67;
+            stroke: #000;
+            stroke-width: .5px;
+        }
+        .circos-label {
+            font-size: 10px;
+            fill: #000;
+        }
 
 
         .tooltip {
@@ -248,9 +267,9 @@
 
             <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <label for="fileInput" class="block text-lg font-medium text-blue-800 mb-2">
-                    Upload your data file (CSV, BED, or VCF):
+                    Upload your data file(s):
                 </label>
-                <input type="file" id="fileInput" accept=".csv,.bed,.vcf" class="block w-full text-sm text-gray-700
+                <input type="file" id="fileInput" accept=".csv,.bed,.vcf,.bam,.bai,.mcool,.tar.gz" multiple class="block w-full text-sm text-gray-700
                     file:mr-4 file:py-2 file:px-4
                     file:rounded-full file:border-0
                     file:text-sm file:font-semibold
@@ -260,7 +279,7 @@
                     rounded-md border border-gray-300 shadow-sm
                 ">
                 <p id="fileInputInstructions" class="text-sm text-gray-600 mt-2">
-                    Your file will be automatically analyzed upon upload.
+                    Your file will be automatically analyzed upon upload. For BAM alignments, please select both the .bam and .bai files.
                 </p>
             </div>
 
@@ -353,10 +372,18 @@
 
     <!-- D3.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://d3js.org/d3-sankey.v0.7.min.js"></script>
     <!-- Three.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- OrbitControls for interactive camera -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Pileup.js and dependencies -->
+    <script src="https://www.pileup.com/dist/pileup.min.js"></script>
+    <!-- HiGlass and dependencies -->
+    <script src="https://unpkg.com/react@16/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@16/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/pixi.js@5/dist/pixi.min.js"></script>
+    <script src="https://unpkg.com/higlass@1.11.2/dist/hglib.js"></script>
 
 
     <script>
@@ -415,7 +442,7 @@
         const COLUMN_MAPPINGS = {
             geneSymbol: ['Gene_symbol', 'Gene', 'Symbol', 'ID', 'Name'],
             foldChange: ['Foldchange', 'FC', 'Log2FC', 'logFC', 'log2FoldChange', 'Fold_Change'],
-            pValue: ['PValue', 'P-value', 'P_value', 'p_val', 'p.value'],
+            pValue: ['PValue', 'P-value', 'P_value', 'p_val', 'p.value', 'P'],
             fdr: ['FDR', 'Adjusted P-value', 'Adj.P.Val', 'padj', 'qvalue', 'QValue', 'FDR_Value'],
             sampleValue: ['1posH', '2posH', '3posH', '4posH', '5posH', '6posH', 'Expression', 'Value'],
             // Hi-C specific
@@ -427,7 +454,29 @@
             bedStart: ['chromStart', 'Start', 'chromStart_0based'],
             bedEnd: ['chromEnd', 'End'],
             bedName: ['name', 'ID', 'Feature', 'Gene'], // Gene can also be name in BED
-            bedScore: ['score', 'Value', 'Signal']
+            bedScore: ['score', 'Value', 'Signal'],
+            // Circos specific
+            sourceChrom: ['source_chrom', 'source_chr'],
+            sourceStart: ['source_start'],
+            targetChrom: ['target_chrom', 'target_chr'],
+            targetStart: ['target_start'],
+            // GWAS specific
+            gwasChrom: ['CHR', 'Chromosome', 'Chr'],
+            gwasPos: ['BP', 'Position', 'Pos'],
+            gwasPval: ['P', 'PValue', 'P-value', 'p_val', 'p.value'],
+            gwasSnp: ['SNP', 'ID', 'rsid'],
+            // Sankey specific
+            sankeySource: ['source', 'from'],
+            sankeyTarget: ['target', 'to'],
+            sankeyValue: ['value', 'weight', 'count'],
+            // Violin/Box specific
+            violinCategory: ['category', 'group', 'type'],
+            violinValue: ['value', 'expression', 'measurement'],
+            // Sequence Logo specific
+            seqLogoA: ['A'],
+            seqLogoC: ['C'],
+            seqLogoG: ['G'],
+            seqLogoT: ['T'],
         };
 
         /**
@@ -676,6 +725,67 @@
             });
             return variants;
         }
+        
+        /**
+         * Parses data for a Circos plot.
+         * @param {Array<Object>} data - Raw data parsed from the CSV.
+         * @param {Object} columnNames - Mapped column names for links.
+         * @returns {Array<Object>} Parsed links.
+         */
+        function parseLinkData(data, columnNames) {
+            return data.map(d => ({
+                source_chrom: d[columnNames.sourceChrom],
+                source_start: +d[columnNames.sourceStart],
+                target_chrom: d[columnNames.targetChrom],
+                target_start: +d[columnNames.targetStart],
+                value: 1 // Default value for link thickness
+            })).filter(d => d.source_chrom && !isNaN(d.source_start) && d.target_chrom && !isNaN(d.target_start));
+        }
+
+        /**
+         * Parses GWAS data for a Manhattan plot.
+         * @param {Array<Object>} data - Raw data parsed from the CSV.
+         * @param {Object} columnNames - Mapped column names for GWAS results.
+         * @returns {Array<Object>} Parsed GWAS data.
+         */
+        function parseGwasData(data, columnNames) {
+            return data.map(d => ({
+                chr: d[columnNames.gwasChrom],
+                bp: +d[columnNames.gwasPos],
+                p: +d[columnNames.gwasPval],
+                snp: d[columnNames.gwasSnp] || 'N/A'
+            })).filter(d => d.chr && !isNaN(d.bp) && !isNaN(d.p) && d.p > 0);
+        }
+        
+        // --- NEW PARSING FUNCTIONS ---
+        function parseSankeyData(data, columnNames) {
+            const links = data.map(d => ({
+                source: d[columnNames.sankeySource],
+                target: d[columnNames.sankeyTarget],
+                value: +d[columnNames.sankeyValue]
+            })).filter(d => d.source && d.target && !isNaN(d.value) && d.value > 0);
+            
+            const nodes = Array.from(new Set(links.flatMap(l => [l.source, l.target]))).map(name => ({ name }));
+            
+            return { nodes, links };
+        }
+
+        function parseViolinBoxData(data, columnNames) {
+            return data.map(d => ({
+                category: d[columnNames.violinCategory],
+                value: +d[columnNames.violinValue]
+            })).filter(d => d.category && !isNaN(d.value));
+        }
+
+        function parseSeqLogoData(data, columnNames) {
+            return data.map(d => ({
+                A: +d[columnNames.seqLogoA],
+                C: +d[columnNames.seqLogoC],
+                G: +d[columnNames.seqLogoG],
+                T: +d[columnNames.seqLogoT]
+            })).filter(d => !isNaN(d.A) && !isNaN(d.C) && !isNaN(d.G) && !isNaN(d.T));
+        }
+
 
         /**
          * Counts the types of variants (SNP, insertion, deletion) in a dataset.
@@ -703,7 +813,7 @@
         function renderData(data, dataType, visualizationType) {
             clearVisualization(); 
 
-            if (!data || data.length === 0) {
+            if (!data || (dataType !== 'pileup' && dataType !== 'higlass' && data.length === 0)) {
                 errorMessage.textContent = 'No data found in the uploaded file or data is empty.';
                 errorMessage.classList.remove('hidden');
                 d3ChartArea.classList.add('flex-center');
@@ -716,6 +826,17 @@
             processedData = []; 
 
             try {
+                // Handle library-specific data first, as they don't have a 'columns' property
+                if (dataType === 'pileup') {
+                    renderPileup(data);
+                    enableAllControls();
+                    return;
+                } else if (dataType === 'higlass') {
+                    renderHiGlass(data);
+                    enableAllControls();
+                    return;
+                }
+                
                 const headers = data.columns;
 
                 if (dataType === 'geneExpression') {
@@ -885,6 +1006,72 @@
 
                     renderVariantTable(processedData.slice(0, 100));
                     renderVariantDistributionChart(variantCounts);
+                
+                } else if (dataType === 'genomicLinks') {
+                    const requiredCols = ['sourceChrom', 'sourceStart', 'targetChrom', 'targetStart'];
+                    columnNames = findColumnNames(headers, requiredCols);
+
+                    if (!columnNames.sourceChrom || !columnNames.sourceStart || !columnNames.targetChrom || !columnNames.targetStart) {
+                        throw new Error(`Missing one or more required columns for Circos Plot. Please ensure your CSV has headers for source_chrom, source_start, target_chrom, and target_start.`);
+                    }
+
+                    processedData = parseLinkData(data, columnNames);
+
+                    if (processedData.length === 0) {
+                        throw new Error("Could not parse valid links from the CSV file.");
+                    }
+
+                    currentDataSummary = {
+                        type: 'genomicLinks',
+                        numLinks: processedData.length,
+                    };
+                    
+                    renderCircosPlot(processedData);
+                } else if (dataType === 'gwasResults') {
+                    const requiredCols = ['gwasChrom', 'gwasPos', 'gwasPval'];
+                    columnNames = findColumnNames(headers, requiredCols);
+
+                    if (!columnNames.gwasChrom || !columnNames.gwasPos || !columnNames.gwasPval) {
+                        throw new Error(`Missing required GWAS columns. Please ensure your CSV has headers for Chromosome (CHR), Position (BP), and P-value (P).`);
+                    }
+
+                    processedData = parseGwasData(data, columnNames);
+
+                    if (processedData.length === 0) {
+                        throw new Error("Could not parse valid GWAS results from the CSV file.");
+                    }
+
+                    currentDataSummary = {
+                        type: 'gwasResults',
+                        numVariants: processedData.length,
+                        mostSignificantSNP: processedData.reduce((min, p) => p.p < min.p ? p : min, processedData[0])
+                    };
+                    
+                    renderManhattanPlot(processedData);
+                } else if (dataType === 'sankey') {
+                    const requiredCols = ['sankeySource', 'sankeyTarget', 'sankeyValue'];
+                    columnNames = findColumnNames(headers, requiredCols);
+                    if (!columnNames.sankeySource || !columnNames.sankeyTarget || !columnNames.sankeyValue) {
+                        throw new Error(`Missing required Sankey columns. Please ensure your CSV has headers for source, target, and value.`);
+                    }
+                    processedData = parseSankeyData(data, columnNames);
+                    renderSankeyDiagram(processedData);
+                } else if (dataType === 'violinBox') {
+                    const requiredCols = ['violinCategory', 'violinValue'];
+                    columnNames = findColumnNames(headers, requiredCols);
+                     if (!columnNames.violinCategory || !columnNames.violinValue) {
+                        throw new Error(`Missing required Violin/Box plot columns. Please ensure your CSV has headers for category and value.`);
+                    }
+                    processedData = parseViolinBoxData(data, columnNames);
+                    renderViolinPlot(processedData);
+                } else if (dataType === 'sequenceLogo') {
+                     const requiredCols = ['seqLogoA', 'seqLogoC', 'seqLogoG', 'seqLogoT'];
+                    columnNames = findColumnNames(headers, requiredCols);
+                     if (!columnNames.seqLogoA || !columnNames.seqLogoC || !columnNames.seqLogoG || !columnNames.seqLogoT) {
+                        throw new Error(`Missing required Sequence Logo columns. Please ensure your CSV has headers for A, C, G, and T.`);
+                    }
+                    processedData = parseSeqLogoData(data, columnNames);
+                    renderSequenceLogo(processedData);
                 }
 
                 d3ChartArea.classList.remove('flex-center');
@@ -938,6 +1125,55 @@
             analysisSettingsSection.classList.add('hidden');
             geneTablesSection.classList.remove('hidden');
             downRegulatedTableContainer.classList.add('hidden');
+        }
+
+        function updateGenomicLinksUI() {
+            fileInputInstructions.textContent = `Detected Genomic Links Data. Required columns: source_chrom, source_start, target_chrom, target_start.`;
+            visualizationSelect.innerHTML = `<option value="circosPlot">Circos Plot</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
+        
+        function updateGwasUI() {
+            fileInputInstructions.textContent = `Detected GWAS Results Data. Required columns: CHR, BP, and P.`;
+            visualizationSelect.innerHTML = `<option value="manhattanPlot">Manhattan Plot</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
+        
+        function updatePileupUI() {
+            fileInputInstructions.textContent = `Detected BAM Alignment Data. Please ensure you have also uploaded the corresponding .bai index file.`;
+            visualizationSelect.innerHTML = `<option value="pileup">Pileup Genome Browser</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
+        
+        function updateHiGlassUI() {
+            fileInputInstructions.textContent = `Detected Hi-C Data. Displaying with HiGlass viewer.`;
+            visualizationSelect.innerHTML = `<option value="higlass">HiGlass Viewer</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
+
+        function updateSankeyUI() {
+            fileInputInstructions.textContent = `Detected Sankey flow data. Required columns: source, target, and value.`;
+            visualizationSelect.innerHTML = `<option value="sankey">Sankey Diagram</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
+
+        function updateViolinBoxUI() {
+            fileInputInstructions.textContent = `Detected distribution data. Required columns: category and value.`;
+            visualizationSelect.innerHTML = `<option value="violin">Violin Plot</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
+        }
+
+        function updateSeqLogoUI() {
+            fileInputInstructions.textContent = `Detected sequence motif data. Required columns: A, C, G, T.`;
+            visualizationSelect.innerHTML = `<option value="seqlogo">Sequence Logo</option>`;
+            analysisSettingsSection.classList.add('hidden');
+            geneTablesSection.classList.add('hidden');
         }
 
 
@@ -2106,6 +2342,468 @@
                     tooltip.transition().duration(500).style("opacity", 0);
                 });
         }
+        
+        // --- Circos Plot Rendering Function (New!) ---
+        function renderCircosPlot(data) {
+            const containerWidth = d3ChartArea.clientWidth;
+            const size = Math.min(containerWidth, 600);
+            const outerRadius = size / 2 - 100;
+            const innerRadius = outerRadius - 20;
+
+            // Prepare data for chord diagram
+            const names = Array.from(new Set([...data.map(d => d.source_chrom), ...data.map(d => d.target_chrom)]));
+            const matrix = Array(names.length).fill(null).map(() => Array(names.length).fill(0));
+
+            data.forEach(d => {
+                const sourceIndex = names.indexOf(d.source_chrom);
+                const targetIndex = names.indexOf(d.target_chrom);
+                if (sourceIndex !== -1 && targetIndex !== -1) {
+                    matrix[sourceIndex][targetIndex] += d.value;
+                }
+            });
+
+            const chord = d3.chord()
+                .padAngle(0.05)
+                .sortSubgroups(d3.descending);
+
+            const arc = d3.arc()
+                .innerRadius(innerRadius)
+                .outerRadius(outerRadius);
+
+            const ribbon = d3.ribbon()
+                .radius(innerRadius);
+
+            const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+            const svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", [-size / 2, -size / 2, size, size])
+                .attr("width", size)
+                .attr("height", size)
+                .attr("font-size", 10)
+                .attr("font-family", "sans-serif");
+                
+            svg.append("text")
+                .attr("x", 0)
+                .attr("y", -size/2 + 30)
+                .attr("class", "chart-title")
+                .text("Genomic Links (Circos Plot)");
+
+            const chords = chord(matrix);
+
+            const group = svg.append("g")
+                .selectAll("g")
+                .data(chords.groups)
+                .join("g");
+
+            group.append("path")
+                .attr("fill", d => color(names[d.index]))
+                .attr("stroke", d => d3.rgb(color(names[d.index])).darker())
+                .attr("d", arc)
+                .attr("class", "circos-chromosome");
+
+            group.append("text")
+                .each(d => (d.angle = (d.startAngle + d.endAngle) / 2))
+                .attr("dy", "0.35em")
+                .attr("transform", d => `
+                    rotate(${(d.angle * 180 / Math.PI - 90)})
+                    translate(${outerRadius + 5})
+                    ${d.angle > Math.PI ? "rotate(180)" : ""}
+                `)
+                .attr("text-anchor", d => d.angle > Math.PI ? "end" : null)
+                .text(d => names[d.index])
+                .attr("class", "circos-label");
+
+            svg.append("g")
+                .attr("fill-opacity", 0.67)
+                .selectAll("path")
+                .data(chords)
+                .join("path")
+                .attr("d", ribbon)
+                .attr("fill", d => color(names[d.target.index]))
+                .attr("stroke", d => d3.rgb(color(names[d.target.index])).darker())
+                .attr("class", "circos-ribbon");
+        }
+
+        // --- Manhattan Plot Rendering Function (New!) ---
+        function renderManhattanPlot(data) {
+            d3ChartArea.innerHTML = '';
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartWidth = containerWidth - margin.left - margin.right;
+            const chartHeight = 500 - margin.top - margin.bottom;
+
+            const svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${containerWidth} 500`)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -margin.top / 2)
+                .attr("class", "chart-title")
+                .text("Manhattan Plot");
+
+            // Process data for cumulative position
+            const chromosomes = [...new Set(data.map(d => d.chr))].sort((a, b) => a - b);
+            let cumulativeLength = 0;
+            const chromOffsets = {};
+            chromosomes.forEach(chr => {
+                chromOffsets[chr] = cumulativeLength;
+                const maxBp = d3.max(data.filter(d => d.chr === chr), d => d.bp);
+                cumulativeLength += maxBp;
+            });
+
+            data.forEach(d => {
+                d.cumulativeBp = chromOffsets[d.chr] + d.bp;
+                d.logP = -Math.log10(d.p);
+            });
+
+            const xScale = d3.scaleLinear()
+                .domain([0, cumulativeLength])
+                .range([0, chartWidth]);
+
+            const yScale = d3.scaleLinear()
+                .domain([0, d3.max(data, d => d.logP) * 1.1])
+                .range([chartHeight, 0]);
+
+            const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+            // X Axis
+            svg.append("g")
+                .attr("class", "x axis")
+                .attr("transform", `translate(0,${chartHeight})`)
+                .call(d3.axisBottom(xScale).tickValues([])); // No ticks, just labels
+
+            // Y Axis
+            svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale))
+                .append("text")
+                .attr("class", "y label text-gray-700 text-sm")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -margin.left + 20)
+                .attr("x", -chartHeight / 2)
+                .text("-log10(p-value)");
+
+            // Chromosome labels for X-axis
+            const chromLabelGroup = svg.append("g");
+            chromosomes.forEach(chr => {
+                const chromData = data.filter(d => d.chr === chr);
+                const chromStart = xScale(chromOffsets[chr]);
+                const chromEnd = xScale(chromOffsets[chr] + d3.max(chromData, d => d.bp));
+                chromLabelGroup.append("text")
+                    .attr("x", (chromStart + chromEnd) / 2)
+                    .attr("y", chartHeight + 20)
+                    .attr("text-anchor", "middle")
+                    .text(chr);
+            });
+
+            // Significance line
+            const significanceThreshold = -Math.log10(5e-8);
+            svg.append("line")
+                .attr("class", "threshold-line")
+                .attr("x1", 0)
+                .attr("x2", chartWidth)
+                .attr("y1", yScale(significanceThreshold))
+                .attr("y2", yScale(significanceThreshold));
+
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip")
+                .style("opacity", 0);
+
+            svg.selectAll(".dot")
+                .data(data)
+                .enter()
+                .append("circle")
+                .attr("class", "dot")
+                .attr("cx", d => xScale(d.cumulativeBp))
+                .attr("cy", d => yScale(d.logP))
+                .attr("r", 2)
+                .style("fill", d => colorScale(d.chr))
+                .on("mouseover", function(event, d) {
+                    tooltip.transition().duration(200).style("opacity", .9);
+                    tooltip.html(`SNP: ${d.snp}<br/>CHR: ${d.chr}:${d.bp.toLocaleString()}<br/>P-value: ${d.p.toExponential(2)}`)
+                        .style("left", (event.pageX + 10) + "px")
+                        .style("top", (event.pageY - 28) + "px");
+                })
+                .on("mouseout", function(d) {
+                    tooltip.transition().duration(500).style("opacity", 0);
+                });
+        }
+        
+        // --- Pileup.js Rendering Function (New!) ---
+        function renderPileup(fileInfo) {
+            d3ChartArea.innerHTML = ''; // Clear the area
+            const serverBaseUrl = `http://192.9.134.33:3000/data/`;
+
+            const pileup = Pileup.create(d3ChartArea, {
+                range: {contig: 'chr17', start: 7512384, stop: 7512544},
+                tracks: [
+                    {
+                        viz: Pileup.viz.genome(),
+                        source: Pileup.source.twoBit({
+                            url: 'https://www.biodalliance.org/datasets/hg19.2bit'
+                        })
+                    },
+                    {
+                        viz: Pileup.viz.pileup(),
+                        source: Pileup.source.bam({
+                            url: `${serverBaseUrl}${fileInfo.bam.name}`,
+                            indexUrl: `${serverBaseUrl}${fileInfo.bai.name}`
+                        })
+                    }
+                ]
+            });
+        }
+        
+        // --- HiGlass Rendering Function (New!) ---
+        function renderHiGlass(fileInfo) {
+            d3ChartArea.innerHTML = ''; // Clear the area
+            const serverBaseUrl = `http://192.9.134.33:3000/data/`;
+            
+            const viewconf = {
+                editable: true,
+                zoomFixed: false,
+                views: [
+                    {
+                        initialXDomain: [0, 3000000000],
+                        initialYDomain: [0, 3000000000],
+                        tracks: {
+                            top: [
+                                {
+                                    type: 'horizontal-chromosome-labels',
+                                    server: 'https://higlass.io/api/v1',
+                                    tilesetUid: 'NyITQvZsS_mOFNlz5C2LJg',
+                                    height: 30
+                                }
+                            ],
+                            left: [
+                                {
+                                    type: 'vertical-chromosome-labels',
+                                    server: 'https://higlass.io/api/v1',
+                                    tilesetUid: 'NyITQvZsS_mOFNlz5C2LJg',
+                                    width: 30
+                                }
+                            ],
+                            center: [
+                                {
+                                    type: 'combined',
+                                    height: 600,
+                                    contents: [
+                                        {
+                                            server: serverBaseUrl,
+                                            tilesetUid: fileInfo.mcool.name,
+                                            type: 'heatmap',
+                                            options: {
+                                                colorRange: [
+                                                    'white',
+                                                    'rgba(245,166,35,1.0)',
+                                                    'rgba(208,2,27,1.0)',
+                                                    'black'
+                                                ],
+                                                maxZoom: null
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        layout: { w: 12, h: 12, x: 0, y: 0 }
+                    }
+                ]
+            };
+
+            const hgApi = hglib.viewer(d3ChartArea, viewconf, { bounded: true });
+        }
+        
+        // --- Sankey Diagram Rendering Function (New!) ---
+        function renderSankeyDiagram(data) {
+            const { nodes, links } = data;
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartWidth = containerWidth - margin.left - margin.right;
+            const chartHeight = 500 - margin.top - margin.bottom;
+
+            const svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${containerWidth} 500`)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const sankey = d3.sankey()
+                .nodeWidth(15)
+                .nodePadding(10)
+                .extent([[1, 1], [chartWidth - 1, chartHeight - 5]]);
+            
+            const graph = sankey({
+                nodes: nodes.map(d => Object.assign({}, d)),
+                links: links.map(d => Object.assign({}, d))
+            });
+
+            const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+            svg.append("g")
+                .selectAll("rect")
+                .data(graph.nodes)
+                .join("rect")
+                .attr("x", d => d.x0)
+                .attr("y", d => d.y0)
+                .attr("height", d => d.y1 - d.y0)
+                .attr("width", d => d.x1 - d.x0)
+                .attr("fill", d => color(d.name))
+                .append("title")
+                .text(d => `${d.name}\n${d.value.toLocaleString()}`);
+
+            const link = svg.append("g")
+                .attr("fill", "none")
+                .attr("stroke-opacity", 0.5)
+                .selectAll("g")
+                .data(graph.links)
+                .join("g")
+                .style("mix-blend-mode", "multiply");
+
+            link.append("path")
+                .attr("d", d3.sankeyLinkHorizontal())
+                .attr("stroke", d => color(d.source.name))
+                .attr("stroke-width", d => Math.max(1, d.width));
+
+            link.append("title")
+                .text(d => `${d.source.name} → ${d.target.name}\n${d.value.toLocaleString()}`);
+
+            svg.append("g")
+                .attr("font-family", "sans-serif")
+                .attr("font-size", 10)
+                .selectAll("text")
+                .data(graph.nodes)
+                .join("text")
+                .attr("x", d => d.x0 < chartWidth / 2 ? d.x1 + 6 : d.x0 - 6)
+                .attr("y", d => (d.y1 + d.y0) / 2)
+                .attr("dy", "0.35em")
+                .attr("text-anchor", d => d.x0 < chartWidth / 2 ? "start" : "end")
+                .text(d => d.name);
+        }
+
+        // --- Violin Plot Rendering Function (New!) ---
+        function renderViolinPlot(data) {
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartWidth = containerWidth - margin.left - margin.right;
+            const chartHeight = 500 - margin.top - margin.bottom;
+
+            const svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${containerWidth} 500`)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            const categories = [...new Set(data.map(d => d.category))];
+            
+            const y = d3.scaleLinear()
+                .domain(d3.extent(data, d => d.value))
+                .range([chartHeight, 0]);
+            svg.append("g").call(d3.axisLeft(y));
+
+            const x = d3.scaleBand()
+                .range([0, chartWidth])
+                .domain(categories)
+                .padding(0.05);
+            svg.append("g")
+                .attr("transform", `translate(0, ${chartHeight})`)
+                .call(d3.axisBottom(x));
+
+            const histogram = d3.histogram()
+                .domain(y.domain())
+                .thresholds(y.ticks(20))
+                .value(d => d);
+
+            const sumstat = d3.group(data, d => d.category);
+
+            let maxNum = 0;
+            sumstat.forEach((d) => {
+                const bins = histogram(d.map(g => g.value));
+                const max = d3.max(bins, b => b.length);
+                if (max > maxNum) maxNum = max;
+            });
+
+            const xNum = d3.scaleLinear()
+                .range([0, x.bandwidth()])
+                .domain([-maxNum, maxNum]);
+
+            svg.selectAll("myViolin")
+                .data(sumstat)
+                .join("g")
+                .attr("transform", d => `translate(${x(d[0])}, 0)`)
+                .append("path")
+                .datum(d => histogram(d[1].map(g => g.value)))
+                .style("stroke", "none")
+                .style("fill", "#69b3a2")
+                .attr("d", d3.area()
+                    .x0(d => xNum(-d.length))
+                    .x1(d => xNum(d.length))
+                    .y(d => y(d.x0))
+                    .curve(d3.curveCatmullRom)
+                );
+        }
+
+        // --- Sequence Logo Rendering Function (New!) ---
+        function renderSequenceLogo(data) {
+            const containerWidth = d3ChartArea.clientWidth;
+            const chartWidth = containerWidth - margin.left - margin.right;
+            const chartHeight = 300 - margin.top - margin.bottom;
+            const n = data.length; // Number of positions
+            const bases = ['A', 'C', 'G', 'T'];
+            const color = d3.scaleOrdinal().domain(bases).range(["#109648", "#255c99", "#f7b32b", "#d62828"]);
+
+            const svg = d3.select(d3ChartArea).append("svg")
+                .attr("viewBox", `0 0 ${containerWidth} 300`)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+            
+            svg.append("text")
+                .attr("x", chartWidth / 2)
+                .attr("y", -margin.top / 2)
+                .attr("class", "chart-title")
+                .text("Sequence Logo");
+
+            const xScale = d3.scaleLinear().domain([0, n]).range([0, chartWidth]);
+            const yScale = d3.scaleLinear().domain([0, 2]).range([chartHeight, 0]); // Max bits = 2
+
+            const positionGroup = svg.selectAll(".position")
+                .data(data)
+                .enter().append("g")
+                .attr("class", "position")
+                .attr("transform", (d, i) => `translate(${xScale(i)}, 0)`);
+
+            data.forEach((posData, i) => {
+                const total = posData.A + posData.C + posData.G + posData.T;
+                const frequencies = { A: posData.A / total, C: posData.C / total, G: posData.G / total, T: posData.T / total };
+                const h = 2 + Object.values(frequencies).reduce((sum, p) => sum + (p > 0 ? p * Math.log2(p) : 0), 0);
+
+                let yOffset = chartHeight;
+                bases.sort((a, b) => frequencies[a] - frequencies[b]).forEach(base => {
+                    const height = chartHeight - yScale(h * frequencies[base]);
+                    if (height > 0) {
+                        positionGroup.filter((d, idx) => idx === i)
+                            .append("text")
+                            .attr("x", xScale(0.5))
+                            .attr("y", yOffset - height / 2)
+                            .attr("dy", "0.35em")
+                            .attr("text-anchor", "middle")
+                            .attr("font-family", "monospace")
+                            .attr("font-weight", "bold")
+                            .attr("font-size", `${height}px`)
+                            .attr("fill", color(base))
+                            .text(base);
+                        yOffset -= height;
+                    }
+                });
+            });
+
+             svg.append("g")
+                .attr("class", "y axis")
+                .call(d3.axisLeft(yScale).ticks(3))
+                .append("text")
+                .attr("class", "y label text-gray-700 text-sm")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -margin.left + 20)
+                .attr("x", -chartHeight / 2)
+                .text("Bits");
+        }
 
 
         // Function to call LLM API
@@ -2149,6 +2847,20 @@
                     contextPrompt += `The current dataset contains ${dataSummary.numVariants} genomic variants from a VCF file.\n`;
                     contextPrompt += `The variant distribution is: ${dataSummary.numSNPs} SNPs, ${dataSummary.numInsertions} insertions, ${dataSummary.numDeletions} deletions, and ${dataSummary.numOther} other complex variants.\n\n`;
                     contextPrompt += `The user is viewing a bar chart of this distribution and a table of the first 100 variants. Please interpret the data and answer the user's question.`;
+                } else if (dataSummary.type === 'genomicLinks') {
+                    contextPrompt += `The current dataset contains ${dataSummary.numLinks} genomic links for a Circos plot.\n\n`;
+                    contextPrompt += `The user is viewing a Circos plot showing these inter-chromosomal relationships. Please interpret the data and answer the user's question.`;
+                } else if (dataSummary.type === 'gwasResults') {
+                    contextPrompt += `The current dataset contains ${dataSummary.numVariants} variants from a GWAS study.\n`;
+                    const mostSig = dataSummary.mostSignificantSNP;
+                    contextPrompt += `The most significant SNP is ${mostSig.snp} on chromosome ${mostSig.chr} with a p-value of ${mostSig.p.toExponential(2)}.\n\n`;
+                    contextPrompt += `The user is viewing a Manhattan plot. Please interpret the data and answer the user's question.`;
+                } else if (dataSummary.type === 'sankey') {
+                     contextPrompt += `The user is viewing a Sankey diagram showing flow between different nodes. Please interpret the data and answer the user's question.`;
+                } else if (dataSummary.type === 'violinBox') {
+                     contextPrompt += `The user is viewing a Violin/Box plot showing the distribution of values across different categories. Please interpret the data and answer the user's question.`;
+                } else if (dataSummary.type === 'sequenceLogo') {
+                     contextPrompt += `The user is viewing a Sequence Logo plot showing nucleotide frequencies at different positions. Please interpret the data and answer the user's question.`;
                 }
 
 
@@ -2186,8 +2898,8 @@
 
         // Event listener for file input change
         fileInput.addEventListener('change', (event) => {
-            const file = event.target.files[0];
-            if (!file) {
+            const files = event.target.files;
+            if (!files || files.length === 0) {
                 clearVisualization();
                 loadingMessage.textContent = `Upload a file to see the data summary here.`;
                 loadingMessage.classList.remove('hidden');
@@ -2197,47 +2909,84 @@
             }
 
             clearVisualization(); 
-            loadingMessage.textContent = 'Analyzing file...';
+            loadingMessage.textContent = 'Uploading and processing file(s) on server...';
             loadingMessage.classList.remove('hidden');
             d3ChartArea.classList.add('flex-center');
             disableAllControls(); 
 
-            const reader = new FileReader();
+            const formData = new FormData();
+            let primaryFile = null;
+            const fileList = Array.from(files);
 
-            reader.onload = (e) => {
-                const fileContent = e.target.result;
-                const fileName = file.name;
-                const fileExtension = fileName.split('.').pop().toLowerCase();
+            // Prioritize file types for auto-detection
+            const filePriorities = ['.tar.gz', '.mcool', '.bam', '.vcf', '.bed', '.csv'];
+            for (const ext of filePriorities) {
+                primaryFile = fileList.find(f => f.name.endsWith(ext));
+                if (primaryFile) break;
+            }
 
+            if (!primaryFile) {
+                errorMessage.textContent = 'Unsupported file type. Please upload a supported file.';
+                errorMessage.classList.remove('hidden');
+                loadingMessage.classList.add('hidden');
+                return;
+            }
+
+            fileList.forEach(file => formData.append('genomicFiles', file));
+
+            const serverUrl = 'http://192.9.134.33:3000/upload';
+            
+            fetch(serverUrl, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || 'Server error') });
+                }
+                return response.json();
+            })
+            .then(data => {
+                const fileExtension = primaryFile.name.endsWith('.tar.gz') ? '.csv' : primaryFile.name.split('.').pop().toLowerCase(); // Assume CSV inside tar.gz for now
+                
                 // --- AUTO-DETECTION LOGIC ---
                 let detectedDataType = null;
 
-                if (fileExtension === 'vcf') {
+                if (fileExtension === 'mcool') {
+                    detectedDataType = 'higlass';
+                } else if (fileExtension === 'bam') {
+                    detectedDataType = 'pileup';
+                } else if (fileExtension === 'vcf') {
                     detectedDataType = 'variantData';
                 } else if (fileExtension === 'bed') {
                     detectedDataType = 'genomicRegions';
                 } else if (fileExtension === 'csv') {
-                    const headers = fileContent.split('\n')[0].split(/,|\t/).map(h => h.trim());
+                    const headers = data.columns;
+                    const seqLogoCols = findColumnNames(headers, ['seqLogoA', 'seqLogoC', 'seqLogoG', 'seqLogoT']);
+                    const violinCols = findColumnNames(headers, ['violinCategory', 'violinValue']);
+                    const sankeyCols = findColumnNames(headers, ['sankeySource', 'sankeyTarget', 'sankeyValue']);
+                    const gwasCols = findColumnNames(headers, ['gwasChrom', 'gwasPos', 'gwasPval']);
+                    const linkCols = findColumnNames(headers, ['sourceChrom', 'targetChrom']);
                     const hiCCols = findColumnNames(headers, ['rowBin', 'colBin', 'interactionValue']);
                     const geneExpCols = findColumnNames(headers, ['geneSymbol', 'foldChange', 'fdr']);
 
-                    if (hiCCols.rowBin && hiCCols.colBin && hiCCols.interactionValue) {
+                    if (seqLogoCols.seqLogoA && seqLogoCols.seqLogoC && seqLogoCols.seqLogoG && seqLogoCols.seqLogoT) {
+                        detectedDataType = 'sequenceLogo';
+                    } else if (violinCols.violinCategory && violinCols.violinValue) {
+                        detectedDataType = 'violinBox';
+                    } else if (sankeyCols.sankeySource && sankeyCols.sankeyTarget && sankeyCols.sankeyValue) {
+                        detectedDataType = 'sankey';
+                    } else if (gwasCols.gwasChrom && gwasCols.gwasPos && gwasCols.gwasPval) {
+                        detectedDataType = 'gwasResults';
+                    } else if (linkCols.sourceChrom && linkCols.targetChrom) {
+                        detectedDataType = 'genomicLinks';
+                    } else if (hiCCols.rowBin && hiCCols.colBin && hiCCols.interactionValue) {
                         detectedDataType = 'hiCInteraction';
                     } else if (geneExpCols.geneSymbol && geneExpCols.foldChange && geneExpCols.fdr) {
                         detectedDataType = 'geneExpression';
                     } else {
-                         errorMessage.textContent = 'Could not determine CSV type. Please ensure headers match Gene Expression or Hi-C formats.';
-                         errorMessage.classList.remove('hidden');
-                         loadingMessage.classList.add('hidden');
-                         return;
+                         throw new Error('Could not determine CSV type.');
                     }
-                }
-
-                if (!detectedDataType) {
-                    errorMessage.textContent = 'Unsupported file type. Please upload a .csv, .bed, or .vcf file.';
-                    errorMessage.classList.remove('hidden');
-                    loadingMessage.classList.add('hidden');
-                    return;
                 }
 
                 currentDataType = detectedDataType;
@@ -2247,61 +2996,50 @@
                 else if (currentDataType === 'hiCInteraction') updateHiCInteractionUI();
                 else if (currentDataType === 'genomicRegions') updateGenomicRegionsUI();
                 else if (currentDataType === 'variantData') updateVariantDataUI();
+                else if (currentDataType === 'genomicLinks') updateGenomicLinksUI();
+                else if (currentDataType === 'gwasResults') updateGwasUI();
+                else if (currentDataType === 'pileup') updatePileupUI();
+                else if (currentDataType === 'higlass') updateHiGlassUI();
+                else if (currentDataType === 'sankey') updateSankeyUI();
+                else if (currentDataType === 'violinBox') updateViolinBoxUI();
+                else if (currentDataType === 'sequenceLogo') updateSeqLogoUI();
                 
                 visualizationOptionsSection.classList.remove('hidden');
-                loadingMessage.textContent = 'Loading data...';
-
-                // --- PARSING LOGIC ---
-                let dataToParse = fileContent;
-                if (fileExtension === 'vcf') {
-                    const lines = fileContent.split('\n');
-                    const dataLines = lines.filter(line => !line.startsWith('##'));
-                    dataToParse = dataLines.join('\n');
+                loadingMessage.classList.add('hidden');
+                
+                let dataToRender = data;
+                if (currentDataType === 'pileup') {
+                    const bamFile = fileList.find(f => f.name.endsWith('.bam'));
+                    const baiFile = fileList.find(f => f.name.endsWith('.bai'));
+                    if (!bamFile || !baiFile) throw new Error('For Pileup, both .bam and .bai files must be uploaded.');
+                    dataToRender = { bam: bamFile, bai: baiFile };
+                } else if (currentDataType === 'higlass') {
+                    const mcoolFile = fileList.find(f => f.name.endsWith('.mcool'));
+                    dataToRender = { mcool: mcoolFile };
                 }
                 
-                const parser = (fileExtension === 'csv') ? d3.csv : d3.tsv;
-
-                try {
-                     parser(URL.createObjectURL(new Blob([dataToParse], {type: 'text/plain'})), d3.autoType).then(data => {
-                        rawDataFromFile = data;
-                        renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
-                        loadingMessage.classList.add('hidden');
-                    }).catch(error => {
-                        errorMessage.textContent = `Error parsing file: ${error.message}. Please check file format and console for details.`;
-                        errorMessage.classList.remove('hidden');
-                        loadingMessage.classList.add('hidden');
-                        disableAllControls();
-                        console.error("Error parsing file:", error);
-                    });
-                } catch (error) {
-                    errorMessage.textContent = `Error reading file: ${error.message}`;
-                    errorMessage.classList.remove('hidden');
-                    loadingMessage.classList.add('hidden');
-                    disableAllControls();
-                    console.error("Error reading file:", error);
-                }
-            };
-
-            reader.onerror = () => {
-                errorMessage.textContent = 'Failed to read file.';
+                rawDataFromFile = dataToRender;
+                renderData(dataToRender, currentDataType, visualizationSelect.value);
+            })
+            .catch(error => {
+                errorMessage.textContent = `Error processing file: ${error.message}. Is the server running?`;
                 errorMessage.classList.remove('hidden');
                 loadingMessage.classList.add('hidden');
                 disableAllControls();
-            };
-
-            reader.readAsText(file);
+                console.error("Error uploading or processing file:", error);
+            });
         });
 
         // Event listener for visualization dropdown change
         visualizationSelect.addEventListener('change', () => {
-            if (rawDataFromFile.length > 0) {
+            if (rawDataFromFile) {
                 renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
             }
         });
 
         // Event listener for Apply Filters button click (only for gene expression)
         applyFiltersButton.addEventListener('click', () => {
-            if (currentDataType === 'geneExpression' && rawDataFromFile.length > 0) {
+            if (currentDataType === 'geneExpression' && rawDataFromFile) {
                 renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
             } else if (currentDataType === 'geneExpression') {
                 errorMessage.textContent = 'Please upload a CSV file before applying filters.';
@@ -2313,7 +3051,7 @@
         // Event listener for LLM button click
         askLlmButton.addEventListener('click', () => {
             const query = llmQueryInput.value.trim();
-            if (query && processedData.length > 0 && currentDataSummary) {
+            if (query && (processedData.length > 0 || ['pileup', 'higlass'].includes(currentDataType)) && currentDataSummary) {
                 callLlmApi(query, currentDataSummary);
             } else if (!query) {
                 llmErrorMessage.textContent = 'Please enter a question for the AI.';
@@ -2324,17 +3062,13 @@
             }
         });
 
-        // *** FIX: Debounce the resize handler to prevent infinite loops.
+        // Debounce the resize handler to prevent infinite loops.
         let resizeTimer;
         const debouncedResizeHandler = () => {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => {
-                if (rawDataFromFile.length > 0) {
-                    // Temporarily disconnect the observer to prevent the handler from re-triggering itself
-                    resizeObserver.disconnect(); 
+                if (rawDataFromFile) {
                     renderData(rawDataFromFile, currentDataType, visualizationSelect.value);
-                    // Re-connect the observer after the rendering is complete
-                    resizeObserver.observe(d3ChartArea);
                 }
             }, 250); // Wait 250ms after the last resize event before re-rendering
         };
